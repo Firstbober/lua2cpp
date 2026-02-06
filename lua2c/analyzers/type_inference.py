@@ -88,6 +88,11 @@ class TypeInference:
                 if i < len(stmt.values):
                     value_type = self._infer_expression(stmt.values[i])
                     self._merge_type(var_name, value_type)
+                    
+                    # Track table info for array-like tables
+                    if (value_type.kind == TypeKind.TABLE and
+                        isinstance(stmt.values[i], astnodes.Table)):
+                        self._infer_table_constructor(var_name, stmt.values[i])
                 else:
                     self._merge_type(var_name, Type(TypeKind.NIL))
 
@@ -265,6 +270,45 @@ class TypeInference:
             return expr.id
         return None
 
+    def _infer_table_constructor(self, var_name: str, table_expr: astnodes.Table) -> None:
+        """Infer table structure from constructor"""
+        # Initialize table info if not exists
+        if var_name not in self.table_info:
+            self.table_info[var_name] = TableTypeInfo()
+        
+        info = self.table_info[var_name]
+        
+        # Analyze array-part of table
+        if not hasattr(table_expr, 'fields'):
+            return
+        
+        # Check if it's an array (sequential numeric indices starting from 1)
+        is_array = True
+        expected_index = 1
+        element_types = set()
+        
+        for field in table_expr.fields:
+            # Check for explicit keys
+            if hasattr(field, 'key') and field.key:
+                is_array = False
+                break
+            
+            # Track element types
+            if hasattr(field, 'value'):
+                value_type = self._infer_expression(field.value)
+                if value_type.kind != TypeKind.UNKNOWN:
+                    element_types.add(value_type.kind)
+        
+        # Determine if uniform type
+        if len(element_types) == 1:
+            info.value_type = Type(next(iter(element_types)))
+        elif len(element_types) > 1:
+            info.value_type = Type(TypeKind.VARIANT, 
+                                   subtypes=[Type(k) for k in element_types])
+        
+        info.is_array = is_array
+        info.has_numeric_keys = set(range(1, len(table_expr.fields) + 1)) if is_array else set()
+    
     def _merge_type(self, symbol: str, new_type: Type) -> None:
         """Merge new type information for a symbol"""
         if symbol not in self.seen_types:

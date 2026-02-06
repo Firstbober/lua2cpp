@@ -6,7 +6,7 @@ Handles all expression types: literals, variables, operations, calls, etc.
 
 from typing import Optional
 from lua2c.core.context import TranslationContext
-from lua2c.core.type_system import Type, TypeKind
+from lua2c.core.type_system import Type, TypeKind, TableTypeInfo
 from lua2c.core.type_conversion import TypeConverter
 from lua2c.core.ast_annotation import ASTAnnotationStore
 from lua2c.generators.naming import NamingScheme
@@ -637,12 +637,27 @@ class ExprGenerator:
             lib_name = expr.value.id
             func_name = expr.idx.id
             return f'state->get_global("{lib_name}.{func_name}")'
-
+        
         table = self.generate(expr.value)
+        
+        # Check if table is a typed array
+        if isinstance(expr.value, astnodes.Name):
+            table_name = expr.value.id
+            table_info = self._get_table_info_for_symbol(table_name)
+            
+            if table_info and table_info.is_array and table_info.value_type:
+                element_type = table_info.value_type
+                
+                if element_type.can_specialize():
+                    # Typed array access
+                    # Generate key with type hint to use native int
+                    self._set_expected_type(expr.idx, Type(TypeKind.NUMBER))
+                    key = self.generate(expr.idx)
+                    self._clear_expected_type(expr.idx)
+                    return f"({table})[{key}]"
+        
+        # Default: luaValue indexing
         key = self.generate(expr.idx)
-
-        # Table indexing always returns luaValue for now
-        # This ensures compatibility with luaValue operators
         return f"({table})[{key}]"
 
     def visit_Field(self, expr: astnodes.Field) -> str:
@@ -657,6 +672,37 @@ class ExprGenerator:
 
     def visit_Table(self, expr: astnodes.Table) -> str:
         """Generate code for table constructor"""
+        # Get table info from type inference
+        table_info = self._get_table_info_from_context(expr)
+        
+        if not table_info:
+            # Fall back to heuristics for anonymous tables
+            is_array = self._is_array_table(expr)
+            element_type = self._infer_array_element_type(expr)
+        else:
+            is_array = table_info.is_array
+            element_type = table_info.value_type
+        
+        # Generate typed table when possible
+        if is_array and element_type and element_type.can_specialize():
+            cpp_type = element_type.cpp_type()
+            if cpp_type == "auto":
+                return "luaValue::new_table()"
+            
+            # Set expected type for all elements to generate native literals
+            elements = []
+            if hasattr(expr, 'fields') and expr.fields:
+                for field in expr.fields:
+                    if hasattr(field, 'value'):
+                        self._set_expected_type(field.value, element_type)
+                        elements.append(self.generate(field.value))
+                        self._clear_expected_type(field.value)
+            
+            if elements:
+                return f"std::deque<{cpp_type}>{{{', '.join(elements)}}}"
+            return f"std::deque<{cpp_type}>{{}}"
+        
+        # Fall back to luaValue table
         return "luaValue::new_table()"
 
         table_info = self._get_table_info_from_context(expr)
@@ -678,9 +724,17 @@ class ExprGenerator:
         else:
             return "luaValue::new_table()"
 
-    def _get_table_info_from_context(self, expr: astnodes.Node):
+    def _get_table_info_from_context(self, expr: astnodes.Node) -> Optional['TableTypeInfo']:
         """Get table info from context (placeholder for future enhancement)"""
+        # For anonymous table constructors, we use heuristics
         return None
+    
+    def _get_table_info_for_symbol(self, name: str) -> Optional['TableTypeInfo']:
+        """Get table info for a named symbol"""
+        type_inferencer = self.context.get_type_inferencer()
+        if not type_inferencer:
+            return None
+        return type_inferencer.get_table_info(name)
 
     def _is_array_table(self, expr: astnodes.Table) -> bool:
         """Check if table is an array based on heuristics"""
