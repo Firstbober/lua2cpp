@@ -265,7 +265,7 @@ class ExprGenerator:
         """Generate code for logical and (short-circuit)
 
         Lua's 'and': return right if left is truthy, else return left
-        C++: left.is_truthy() ? right : left
+        C++: luaValue(left.is_truthy() ? right : left)
 
         Note: This uses a lambda to avoid double evaluation of expressions with side effects.
         """
@@ -273,19 +273,19 @@ class ExprGenerator:
         right_has_side_effects = self._has_side_effects(expr.right)
 
         if left_has_side_effects or right_has_side_effects:
-            left = self.generate_with_parentheses(expr.left, 'AndLoOp')
-            right = self.generate_with_parentheses(expr.right, 'AndLoOp')
-            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return _l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left; }}()"
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left); }}()"
         else:
-            left = self.generate_with_parentheses(expr.left, 'AndLoOp')
-            right = self.generate_with_parentheses(expr.right, 'AndLoOp')
-            return f"({left}).is_truthy() ? ({right}) : ({left})"
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+            return f"luaValue(({left}).is_truthy() ? ({right}) : ({left}))"
 
     def visit_OrLoOp(self, expr: astnodes.OrLoOp) -> str:
         """Generate code for logical or (short-circuit)
 
         Lua's 'or': return left if left is truthy, else return right
-        C++: left.is_truthy() ? left : right
+        C++: luaValue(left.is_truthy() ? left : right)
 
         Note: This uses a lambda to avoid double evaluation of expressions with side effects.
         """
@@ -293,13 +293,13 @@ class ExprGenerator:
         right_has_side_effects = self._has_side_effects(expr.right)
 
         if left_has_side_effects or right_has_side_effects:
-            left = self.generate_with_parentheses(expr.left, 'OrLoOp')
-            right = self.generate_with_parentheses(expr.right, 'OrLoOp')
-            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return _l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right; }}()"
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right); }}()"
         else:
-            left = self.generate_with_parentheses(expr.left, 'OrLoOp')
-            right = self.generate_with_parentheses(expr.right, 'OrLoOp')
-            return f"({left}).is_truthy() ? ({left}) : ({right})"
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+            return f"luaValue(({left}).is_truthy() ? ({left}) : ({right}))"
 
     def visit_UMinusOp(self, expr: astnodes.UMinusOp) -> str:
         """Generate code for unary negation"""
@@ -329,6 +329,7 @@ class ExprGenerator:
                 return f"{func}(state, {args})"
         
         # Global/library function: func({arg1, arg2, ...})
+        args = ", ".join([self.generate(arg) for arg in expr.args])
         return f"({func})({{{args}}})"
 
     def visit_Invoke(self, expr: astnodes.Invoke) -> str:
@@ -386,6 +387,27 @@ class ExprGenerator:
             return self._has_side_effects(expr.value)
         if isinstance(expr, astnodes.Field):
             return self._has_side_effects(expr.value)
+        return False
+
+    def _is_temporary_expression(self, expr: astnodes.Node) -> bool:
+        """Check if an expression generates a temporary/rvalue
+
+        Args:
+            expr: Expression node to check
+
+        Returns:
+            True if expression is an rvalue that can't bind to non-const reference
+        """
+        if isinstance(expr, astnodes.Table):
+            return True
+        if isinstance(expr, astnodes.Call):
+            return True
+        if isinstance(expr, astnodes.AnonymousFunction):
+            return True
+        if isinstance(expr, (astnodes.Number, astnodes.String, astnodes.TrueExpr, astnodes.FalseExpr, astnodes.Nil)):
+            return True
+        if isinstance(expr, (astnodes.AndLoOp, astnodes.OrLoOp)):
+            return True
         return False
 
     def visit_Index(self, expr: astnodes.Index) -> str:

@@ -124,8 +124,41 @@ class StmtGenerator:
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
         """Generate code for function call statement"""
-        expr_code = self.expr_gen.generate(stmt)
-        return f"{expr_code};"
+        # Check if this is a local function call (needs state parameter)
+        is_local_call = False
+        if isinstance(stmt.func, astnodes.Name):
+            symbol = self.context.resolve_symbol(stmt.func.id)
+            if symbol and not symbol.is_global:
+                is_local_call = True
+
+        if is_local_call:
+            # For local functions, detect temporaries and wrap them
+            func_code = self.expr_gen.generate(stmt.func)
+            arg_codes = [self.expr_gen.generate(arg) for arg in stmt.args]
+            
+            wrapped_args = []
+            temp_decls = []
+            temp_counter = [0]
+            
+            for arg_code, arg in zip(arg_codes, stmt.args):
+                if self.expr_gen._is_temporary_expression(arg):
+                    temp_name = f"_l2c_tmp_arg_{temp_counter[0]}"
+                    temp_counter[0] += 1
+                    temp_decls.append(f"luaValue {temp_name} = {arg_code};")
+                    wrapped_args.append(temp_name)
+                else:
+                    wrapped_args.append(arg_code)
+            
+            # Combine temporaries with call
+            args_str = ", ".join(wrapped_args)
+            if temp_decls:
+                return "{\n    " + "\n    ".join(temp_decls) + "\n    " + f"{func_code}(state, {args_str});\n" + "}"
+            else:
+                return f"{func_code}(state, {args_str});"
+        else:
+            # Global/library function
+            expr_code = self.expr_gen.generate(stmt)
+            return f"{expr_code};"
 
     def visit_Invoke(self, stmt: astnodes.Invoke) -> str:
         """Generate code for method invocation statement"""
