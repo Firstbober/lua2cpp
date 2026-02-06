@@ -4,8 +4,6 @@ project(lua2c_tests)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -flto")
-
 # Runtime library files
 set(RUNTIME_SOURCES
     ${CMAKE_SOURCE_DIR}/../../runtime/lua_value.cpp
@@ -44,6 +42,17 @@ add_custom_command(
 
 add_executable(binary_trees_test binary_trees_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/binary_trees.cpp)
 target_link_libraries(binary_trees_test lua2c_runtime)
+
+# Test for comparisons.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/comparisons.lua -o ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons.cpp
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/comparisons.lua
+    VERBATIM
+)
+
+add_executable(comparisons_test comparisons_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons.cpp)
+target_link_libraries(comparisons_test lua2c_runtime)
 
 # Test for fannkuch-redux.lua
 add_custom_command(

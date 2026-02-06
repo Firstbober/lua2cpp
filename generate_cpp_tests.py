@@ -53,6 +53,10 @@ ARGUMENT_PATTERNS: Dict[str, Dict] = {
         "num_args": 0,
         "description": "No arguments"
     },
+    "comparisons": {
+        "num_args": 0,
+        "description": "No arguments"
+    },
     "spectral-norm": {
         "num_args": 1,
         "defaults": [100],
@@ -234,7 +238,7 @@ def main():
 
     # Remove old auto-generated section if it exists
     cmake_content = re.sub(
-        r"\n# Auto-generated test targets.*?(?=\n\n|\Z)",
+        r"# Auto-generated test targets[\s\S]*",
         "",
         cmake_content,
         flags=re.DOTALL

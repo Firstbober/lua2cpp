@@ -221,39 +221,39 @@ class ExprGenerator:
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
         """Generate code for equality operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"{left} == {right}"
+        left = self.generate_with_parentheses(expr.left, 'EqToOp')
+        right = self.generate_with_parentheses(expr.right, 'EqToOp')
+        return f"luaValue({left} == {right})"
 
     def visit_NotEqToOp(self, expr: astnodes.NotEqToOp) -> str:
         """Generate code for inequality operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"{left} != {right}"
+        left = self.generate_with_parentheses(expr.left, 'NotEqToOp')
+        right = self.generate_with_parentheses(expr.right, 'NotEqToOp')
+        return f"luaValue({left} != {right})"
 
     def visit_LessThanOp(self, expr: astnodes.LessThanOp) -> str:
         """Generate code for less-than operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"{left} < {right}"
+        left = self.generate_with_parentheses(expr.left, 'LessThanOp')
+        right = self.generate_with_parentheses(expr.right, 'LessThanOp')
+        return f"luaValue({left} < {right})"
 
     def visit_LessOrEqThanOp(self, expr: astnodes.LessOrEqThanOp) -> str:
         """Generate code for less-than-or-equal operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"{left} <= {right}"
+        left = self.generate_with_parentheses(expr.left, 'LessOrEqThanOp')
+        right = self.generate_with_parentheses(expr.right, 'LessOrEqThanOp')
+        return f"luaValue({left} <= {right})"
 
     def visit_GreaterThanOp(self, expr: astnodes.GreaterThanOp) -> str:
         """Generate code for greater-than operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"{left} > {right}"
+        left = self.generate_with_parentheses(expr.left, 'GreaterThanOp')
+        right = self.generate_with_parentheses(expr.right, 'GreaterThanOp')
+        return f"luaValue({left} > {right})"
 
     def visit_GreaterOrEqThanOp(self, expr: astnodes.GreaterOrEqThanOp) -> str:
         """Generate code for greater-than-or-equal operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"{left} >= {right}"
+        left = self.generate_with_parentheses(expr.left, 'GreaterOrEqThanOp')
+        right = self.generate_with_parentheses(expr.right, 'GreaterOrEqThanOp')
+        return f"luaValue({left} >= {right})"
 
     def visit_Concat(self, expr: astnodes.Concat) -> str:
         """Generate code for string concatenation"""

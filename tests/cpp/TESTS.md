@@ -30,6 +30,16 @@ This directory contains C++ test executables for all Lua benchmarks.
 ./binary_trees_test 0
 ```
 
+### comparisons.lua
+- **Test executable**: `comparisons_test`
+- **C++ main file**: `comparisons_main.cpp`
+- **Lua source**: `lua/comparisons.lua`
+- **Arguments**: No arguments
+- **Usage**:
+```bash
+./comparisons_test
+```
+
 ### fannkuch-redux.lua
 - **Test executable**: `fannkuch_redux_test`
 - **C++ main file**: `fannkuch_redux_main.cpp`
