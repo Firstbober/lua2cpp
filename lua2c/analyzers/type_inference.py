@@ -7,6 +7,7 @@ Tracks type usage to determine if types are stable or dynamic.
 from typing import Dict, Set, Optional, List
 from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind, TableTypeInfo
+from lua2c.core.ast_annotation import ASTAnnotationStore
 from luaparser import astnodes
 
 
@@ -18,9 +19,6 @@ class TypeInference:
         self.inferred_types: Dict[str, Type] = {}
         self.table_info: Dict[str, TableTypeInfo] = {}
         self.seen_types: Dict[str, Set[TypeKind]] = {}
-        self.expr_types: Dict[int, Type] = {}
-        self.expr_requires_lua_value: Dict[int, bool] = {}
-        self.expr_counter = 0
 
     def infer_chunk(self, chunk: astnodes.Chunk) -> None:
         """Perform type inference on entire chunk"""
@@ -64,7 +62,7 @@ class TypeInference:
         elif isinstance(stmt, astnodes.Fornum):
             self._infer_expression(stmt.start)
             self._infer_expression(stmt.stop)
-            if stmt.step:
+            if stmt.step and isinstance(stmt.step, astnodes.Node):
                 self._infer_expression(stmt.step)
             for s in stmt.body.body:
                 self._infer_statement(s)
@@ -107,73 +105,105 @@ class TypeInference:
     def _infer_expression(self, expr: astnodes.Node) -> Type:
         """Infer type of an expression"""
         if isinstance(expr, astnodes.Number):
-            return Type(TypeKind.NUMBER, is_constant=True)
+            type_info = Type(TypeKind.NUMBER, is_constant=True)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.String):
-            return Type(TypeKind.STRING, is_constant=True)
+            type_info = Type(TypeKind.STRING, is_constant=True)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.TrueExpr) or isinstance(expr, astnodes.FalseExpr):
-            return Type(TypeKind.BOOLEAN, is_constant=True)
+            type_info = Type(TypeKind.BOOLEAN, is_constant=True)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Nil):
-            return Type(TypeKind.NIL, is_constant=True)
+            type_info = Type(TypeKind.NIL, is_constant=True)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Name):
-            return self._get_symbol_type(expr.id)
+            type_info = self._get_symbol_type(expr.id)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Call):
-            return Type(TypeKind.UNKNOWN)
+            type_info = Type(TypeKind.UNKNOWN)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Table):
-            return Type(TypeKind.TABLE)
+            type_info = Type(TypeKind.TABLE)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Index):
             self._infer_table_index(expr)
-            return Type(TypeKind.UNKNOWN)
+            type_info = Type(TypeKind.UNKNOWN)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.AnonymousFunction):
-            return Type(TypeKind.FUNCTION)
+            type_info = Type(TypeKind.FUNCTION)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, (astnodes.AddOp, astnodes.SubOp, astnodes.MultOp,
                                 astnodes.FloatDivOp, astnodes.FloorDivOp,
                                 astnodes.ModOp, astnodes.ExpoOp)):
             left_type = self._infer_expression(expr.left)
             right_type = self._infer_expression(expr.right)
-            return self._infer_arithmetic_result(left_type, right_type)
+            type_info = self._infer_arithmetic_result(left_type, right_type)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, (astnodes.Concat,)):
-            return Type(TypeKind.STRING)
+            type_info = Type(TypeKind.STRING)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, (astnodes.EqToOp, astnodes.NotEqToOp, astnodes.LessThanOp,
                                 astnodes.LessOrEqThanOp, astnodes.GreaterThanOp,
                                 astnodes.GreaterOrEqThanOp)):
-            return Type(TypeKind.BOOLEAN)
+            type_info = Type(TypeKind.BOOLEAN)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, (astnodes.AndLoOp, astnodes.OrLoOp)):
             left_type = self._infer_expression(expr.left)
             right_type = self._infer_expression(expr.right)
-            return self._merge_two_types(left_type, right_type)
+            type_info = self._merge_two_types(left_type, right_type)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.UMinusOp):
-            return self._infer_expression(expr.operand)
+            type_info = self._infer_expression(expr.operand)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.ULNotOp):
-            return Type(TypeKind.BOOLEAN)
+            type_info = Type(TypeKind.BOOLEAN)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.ULengthOP):
-            return Type(TypeKind.NUMBER)
+            type_info = Type(TypeKind.NUMBER)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Dots):
-            return Type(TypeKind.UNKNOWN)
+            type_info = Type(TypeKind.UNKNOWN)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Field):
-            return self._infer_expression(expr.value)
+            type_info = self._infer_expression(expr.value)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
         elif isinstance(expr, astnodes.Invoke):
-            return Type(TypeKind.UNKNOWN)
+            type_info = Type(TypeKind.UNKNOWN)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
 
-        return Type(TypeKind.UNKNOWN)
+        type_info = Type(TypeKind.UNKNOWN)
+        ASTAnnotationStore.set_type(expr, type_info)
+        return type_info
 
     def _get_expression_type(self, expr: astnodes.Node) -> Type:
         """Get type for an expression (public interface for generators)"""
-        expr_id = self._get_expr_id(expr)
-
-        import sys
-        print(f"DEBUG TypeInference._get_expression_type: expr_id={expr_id}, in_cache={expr_id in self.expr_types}", file=sys.stderr)
-
-        # If not found in cache, infer it
-        if expr_id not in self.expr_types:
-            self._infer_expression_with_context(expr)
-
-        result = self.expr_types.get(expr_id, Type(TypeKind.UNKNOWN))
-        print(f"DEBUG TypeInference._get_expression_type: result={result}", file=sys.stderr)
-        return result
+        type_info = ASTAnnotationStore.get_type(expr)
+        if type_info is None:
+            type_info = Type(TypeKind.UNKNOWN)
+        return type_info
 
     def expression_requires_lua_value(self, expr: astnodes.Node) -> bool:
         """Check if expression requires luaValue wrapper (public interface)"""
-        return self._expr_requires_lua_value(expr)
+        return ASTAnnotationStore.get_requires_lua_value(expr)
 
     def _infer_arithmetic_result(self, left: Type, right: Type) -> Type:
         """Infer result type of arithmetic operation"""
@@ -263,41 +293,9 @@ class TypeInference:
             self.table_info[symbol].is_array = self.table_info[symbol].finalize_array()
         return self.table_info.get(symbol)
 
-    def _get_expr_id(self, expr: astnodes.Node) -> int:
-        """Get unique ID for an expression node"""
-        return id(expr)
-
-    def _infer_expression_with_context(self, expr: astnodes.Node) -> Type:
-        """Infer expression type with context tracking"""
-        expr_id = self._get_expr_id(expr)
-        expr_type = self._infer_expression(expr)
-        self.expr_types[expr_id] = expr_type
-        return expr_type
-
-    def _mark_expression_requires_lua_value(self, expr: astnodes.Node) -> None:
-        """Mark that an expression must use luaValue wrapper"""
-        expr_id = self._get_expr_id(expr)
-        self.expr_requires_lua_value[expr_id] = True
-
-    def _expr_requires_lua_value(self, expr: astnodes.Node) -> bool:
-        """Check if expression requires luaValue wrapper"""
-        expr_id = self._get_expr_id(expr)
-        return self.expr_requires_lua_value.get(expr_id, False)
-
-    def _get_expression_context_type(self, expr: astnodes.Node) -> Type:
-        """Get the expected type for an expression in its context"""
-        expr_id = self._get_expr_id(expr)
-        if expr_id in self.expr_types:
-            return self.expr_types[expr_id]
-
-        if expr_id in self.expr_requires_lua_value:
-            return Type(TypeKind.UNKNOWN)
-
-        return Type(TypeKind.UNKNOWN)
-
     def _mark_expr_chain_requires_lua_value(self, expr: astnodes.Node) -> None:
         """Mark an entire expression chain as requiring luaValue"""
-        self._mark_expression_requires_lua_value(expr)
+        ASTAnnotationStore.set_requires_lua_value(expr, True)
 
         if isinstance(expr, astnodes.Name):
             return

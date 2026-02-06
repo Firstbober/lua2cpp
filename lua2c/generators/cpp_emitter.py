@@ -67,10 +67,6 @@ class CppEmitter:
         self.expr_gen.set_type_inferencer(type_inferencer)
         self.context.set_type_inferencer(type_inferencer)
 
-        # Clear expr_types to force re-inference during code generation
-        # This ensures we use the correct AST nodes
-        type_inferencer.expr_types.clear()
-
         # Phase 2: String collection (existing)
         self._collect_strings(lua_ast)
 

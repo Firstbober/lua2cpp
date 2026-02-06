@@ -8,6 +8,7 @@ from typing import Optional
 from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind
 from lua2c.core.type_conversion import TypeConverter
+from lua2c.core.ast_annotation import ASTAnnotationStore
 from lua2c.generators.naming import NamingScheme
 try:
     from luaparser import astnodes
@@ -72,18 +73,10 @@ class ExprGenerator:
         Returns:
             Inferred type
         """
-        if not self._type_inferencer:
+        type_info = ASTAnnotationStore.get_type(expr)
+        if type_info is None:
             return Type(TypeKind.UNKNOWN)
-
-        # Try to get from stored expression types
-        if hasattr(expr, '_l2c_inferred_type'):
-            return expr._l2c_inferred_type
-
-        # Otherwise infer it now
-        result_type = self._type_inferencer._get_expression_type(expr)
-        # Cache the result on the node
-        expr._l2c_inferred_type = result_type
-        return result_type
+        return type_info
 
     def _set_expected_type(self, expr: astnodes.Node, type_hint: Optional[Type]) -> None:
         """Set expected type for an expression
