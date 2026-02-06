@@ -3,10 +3,10 @@
 #include <iostream>
 
 // Forward declarations for generated modules
-luaValue _l2c__spectral_norm_export(luaState* state);
+luaValue _l2c__simple_export(luaState* state);
 
 int main(int argc, char* argv[]) {
-    std::cout << "Testing transpiled spectral-norm.lua..." << std::endl;
+    std::cout << "Testing transpiled simple.lua..." << std::endl;
 
     // Create Lua state
     luaState state;
@@ -19,14 +19,10 @@ int main(int argc, char* argv[]) {
     }
     state.set_arg(args);
 
-    // Set default for arg[1]
-    if (argc <= 1) {
-        args.push_back(luaValue(100));
-        state.set_arg(args);
-    }
+    // No default arguments needed
 
-    // Call the transpiled spectral-norm.lua module
-    luaValue result = _l2c__spectral_norm_export(&state);
+    // Call the transpiled simple.lua module
+    luaValue result = _l2c__simple_export(&state);
 
     std::cout << "Test completed!" << std::endl;
     return 0;
