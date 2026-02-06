@@ -29,38 +29,38 @@ class TestExprGenerator:
         """Test generating integer number"""
         expr = astnodes.Number(n=42)
         result = generator.generate(expr)
-        assert result == "L2C_NUMBER_INT(42)"
+        assert result == "luaValue(42)"
 
     def test_generate_number_float(self, generator):
         """Test generating float number"""
         expr = astnodes.Number(n=3.14)
         result = generator.generate(expr)
-        assert result == "L2C_NUMBER_FLOAT(3.14)"
+        assert result == "luaValue(3.14)"
 
     def test_generate_string_literal(self, generator, context):
         """Test generating string literal"""
         expr = astnodes.String(s=b"hello", raw="hello")
         result = generator.generate(expr)
-        assert result.startswith("L2C_STRING_LITERAL(")
-        assert result.endswith(")")
+        assert "string_pool" in result
+        assert "[" in result and "]" in result
 
     def test_generate_nil(self, generator):
         """Test generating nil"""
         expr = astnodes.Nil()
         result = generator.generate(expr)
-        assert result == "L2C_NIL"
+        assert result == "luaValue()"
 
     def test_generate_true(self, generator):
         """Test generating true"""
         expr = astnodes.TrueExpr()
         result = generator.generate(expr)
-        assert result == "L2C_TRUE"
+        assert result == "luaValue(true)"
 
     def test_generate_false(self, generator):
         """Test generating false"""
         expr = astnodes.FalseExpr()
         result = generator.generate(expr)
-        assert result == "L2C_FALSE"
+        assert result == "luaValue(false)"
 
     def test_generate_name_local(self, generator, context):
         """Test generating local variable reference"""
@@ -73,7 +73,7 @@ class TestExprGenerator:
         """Test generating undefined variable reference (global)"""
         expr = astnodes.Name(identifier="undefined_var")
         result = generator.generate(expr)
-        assert "L2C_GET_GLOBAL" in result
+        assert "state->get_global" in result
         assert "undefined_var" in result
 
     def test_generate_name_global(self, generator, context):
@@ -81,7 +81,7 @@ class TestExprGenerator:
         context.define_global("g")
         expr = astnodes.Name(identifier="g")
         result = generator.generate(expr)
-        assert "L2C_GET_GLOBAL" in result
+        assert "state->get_global" in result
         assert "g" in result
 
     def test_generate_binop_add(self, generator):
@@ -90,8 +90,9 @@ class TestExprGenerator:
         right = astnodes.Number(n=3)
         expr = astnodes.AddOp(left=left, right=right)
         result = generator.generate(expr)
-        assert "L2C_BINOP" in result
-        assert "L2C_OP_ADD" in result
+        assert "+" in result
+        assert "5" in result
+        assert "3" in result
 
     def test_generate_binop_sub(self, generator):
         """Test generating subtraction operation"""
@@ -99,8 +100,7 @@ class TestExprGenerator:
         right = astnodes.Number(n=4)
         expr = astnodes.SubOp(left=left, right=right)
         result = generator.generate(expr)
-        assert "L2C_BINOP" in result
-        assert "L2C_OP_SUB" in result
+        assert "-" in result
 
     def test_generate_binop_mul(self, generator):
         """Test generating multiplication operation"""
@@ -108,8 +108,7 @@ class TestExprGenerator:
         right = astnodes.Number(n=7)
         expr = astnodes.MultOp(left=left, right=right)
         result = generator.generate(expr)
-        assert "L2C_BINOP" in result
-        assert "L2C_OP_MUL" in result
+        assert "*" in result
 
     def test_generate_binop_div(self, generator):
         """Test generating division operation"""
@@ -117,8 +116,7 @@ class TestExprGenerator:
         right = astnodes.Number(n=4)
         expr = astnodes.FloatDivOp(left=left, right=right)
         result = generator.generate(expr)
-        assert "L2C_BINOP" in result
-        assert "L2C_OP_DIV" in result
+        assert "/" in result
 
     def test_generate_binop_eq(self, generator):
         """Test generating equality operation"""
@@ -126,8 +124,7 @@ class TestExprGenerator:
         right = astnodes.Number(n=5)
         expr = astnodes.EqToOp(left=left, right=right)
         result = generator.generate(expr)
-        assert "L2C_BINOP" in result
-        assert "L2C_OP_EQ" in result
+        assert "==" in result
 
     def test_generate_binop_lt(self, generator):
         """Test generating less-than operation"""
@@ -135,40 +132,38 @@ class TestExprGenerator:
         right = astnodes.Number(n=5)
         expr = astnodes.LessThanOp(left=left, right=right)
         result = generator.generate(expr)
-        assert "L2C_BINOP" in result
-        assert "L2C_OP_LT" in result
+        assert "<" in result
 
     def test_generate_unop_neg(self, generator):
         """Test generating negation operation"""
         operand = astnodes.Number(n=5)
         expr = astnodes.UMinusOp(operand=operand)
         result = generator.generate(expr)
-        assert "L2C_UNOP" in result
-        assert "L2C_OP_NEG" in result
+        assert "-" in result
 
     def test_generate_unop_not(self, generator):
         """Test generating logical not operation"""
         operand = astnodes.TrueExpr()
         expr = astnodes.ULNotOp(operand=operand)
         result = generator.generate(expr)
-        assert "L2C_UNOP" in result
-        assert "L2C_OP_NOT" in result
+        assert "!" in result
+        assert "is_truthy" in result
 
     def test_generate_unop_len(self, generator):
         """Test generating length operation"""
         operand = astnodes.String(s=b"hello", raw="hello")
         expr = astnodes.ULengthOP(operand=operand)
         result = generator.generate(expr)
-        assert "L2C_UNOP" in result
-        assert "L2C_OP_LEN" in result
+        assert "l2c_len" in result
 
     def test_generate_call_no_args(self, generator):
         """Test generating function call with no arguments"""
         func = astnodes.Name(identifier="print")
         expr = astnodes.Call(func=func, args=[])
         result = generator.generate(expr)
-        assert "L2C_CALL" in result
-        assert "0" in result  # Zero arguments
+        assert "(" in result
+        assert ")" in result
+        assert "{}" in result
 
     def test_generate_call_with_args(self, generator):
         """Test generating function call with arguments"""
@@ -176,46 +171,70 @@ class TestExprGenerator:
         args = [astnodes.String(s=b"hello", raw="hello"), astnodes.Number(n=42)]
         expr = astnodes.Call(func=func, args=args)
         result = generator.generate(expr)
-        assert "L2C_CALL" in result
-        assert "2" in result  # Two arguments
+        assert "(" in result
+        assert ")" in result
 
     def test_generate_dots(self, generator):
         """Test generating varargs"""
         expr = astnodes.Dots()
         result = generator.generate(expr)
-        assert result == "L2C_VARARGS"
+        assert "varargs" in result
 
-    def test_generate_unsupported_binop(self, generator):
-        """Test that unsupported binary operators raise error"""
+    def test_generate_and_or_operators(self, generator):
+        """Test generating and/or operators"""
         left = astnodes.Number(n=1)
         right = astnodes.Number(n=2)
-        expr = astnodes.AndLoOp(left=left, right=right)
-        with pytest.raises(NotImplementedError):
-            generator.generate(expr)
+        and_expr = astnodes.AndLoOp(left=left, right=right)
+        result = generator.generate(and_expr)
+        assert "is_truthy" in result
+        assert "?" in result
+        assert ":" in result
 
-    def test_generate_unsupported_node_type(self, generator):
-        """Test that unsupported node types raise error"""
-        expr = astnodes.Index(idx=astnodes.Number(n=1), value=astnodes.Number(n=2))
-        with pytest.raises(NotImplementedError):
-            generator.generate(expr)
+        or_expr = astnodes.OrLoOp(left=left, right=right)
+        result = generator.generate(or_expr)
+        assert "is_truthy" in result
+        assert "?" in result
+        assert ":" in result
 
-    def test_generate_invoke_not_implemented(self, generator):
-        """Test that method invocation is not implemented"""
+    def test_generate_index(self, generator):
+        """Test generating table index"""
+        table = astnodes.Name(identifier="t")
+        key = astnodes.Number(n=1)
+        expr = astnodes.Index(idx=key, value=table)
+        result = generator.generate(expr)
+        assert "[" in result
+        assert "]" in result
+
+    def test_generate_field(self, generator):
+        """Test generating table field access"""
+        table = astnodes.Name(identifier="obj")
+        field_name = astnodes.Name(identifier="x")
+        expr = astnodes.Field(key=field_name, value=table)
+        result = generator.generate(expr)
+        assert "[" in result
+        assert "]" in result
+        assert "string_pool" in result
+
+    def test_generate_invoke(self, generator):
+        """Test generating method invocation"""
         source = astnodes.Name(identifier="obj")
         func = astnodes.Name(identifier="method")
         expr = astnodes.Invoke(source=source, func=func, args=[])
-        with pytest.raises(NotImplementedError):
-            generator.generate(expr)
+        result = generator.generate(expr)
+        assert "[" in result
+        assert "]" in result
+        assert "(" in result
+        assert ")" in result
 
-    def test_generate_table_constructor_not_implemented(self, generator):
-        """Test that table constructor is not implemented"""
+    def test_generate_table_constructor(self, generator):
+        """Test generating table constructor"""
         expr = astnodes.Table(fields=[])
-        with pytest.raises(NotImplementedError):
-            generator.generate(expr)
+        result = generator.generate(expr)
+        assert "new_table" in result
 
-    def test_generate_anonymous_function_not_implemented(self, generator):
-        """Test that anonymous function is not implemented"""
+    def test_generate_anonymous_function(self, generator):
+        """Test generating anonymous function"""
         body = astnodes.Block(body=[])
         expr = astnodes.AnonymousFunction(args=[], body=body)
-        with pytest.raises(NotImplementedError):
-            generator.generate(expr)
+        result = generator.generate(expr)
+        assert "new_closure" in result

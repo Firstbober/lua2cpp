@@ -1,6 +1,6 @@
 """Statement generator for Lua2C transpiler
 
-Translates Lua statements to C code.
+Translates Lua statements to C++ code.
 Handles all statement types: assignment, control flow, loops, etc.
 """
 
@@ -13,7 +13,7 @@ except ImportError:
 
 
 class StmtGenerator:
-    """Generates C code for Lua statements"""
+    """Generates C++ code for Lua statements"""
 
     def __init__(self, context: TranslationContext) -> None:
         """Initialize statement generator
@@ -25,13 +25,13 @@ class StmtGenerator:
         self.expr_gen = ExprGenerator(context)
 
     def generate(self, stmt: astnodes.Node) -> str:
-        """Generate C code for a statement
+        """Generate C++ code for a statement
 
         Args:
             stmt: Statement AST node
 
         Returns:
-            C code string
+            C++ code string
         """
         method_name = f"visit_{stmt.__class__.__name__}"
         method = getattr(self, method_name, self._generic_visit)
@@ -44,7 +44,7 @@ class StmtGenerator:
             stmt: Statement node
 
         Returns:
-            C code string
+            C++ code string
 
         Raises:
             NotImplementedError: If node type not supported
@@ -87,7 +87,7 @@ class StmtGenerator:
             if i < len(values):
                 code_lines.append(f"luaValue {target_name} = {values[i]};")
             else:
-                code_lines.append(f"luaValue {target_name} = L2C_NIL;")
+                code_lines.append(f"luaValue {target_name} = luaValue();")
 
         return "\n".join(code_lines)
 
@@ -101,65 +101,104 @@ class StmtGenerator:
         self.context.enter_function()
 
         # Handle parameters
+        param_names = []
         for i, param in enumerate(stmt.args):
             if hasattr(param, 'id'):
                 self.context.define_parameter(param.id, i)
+                param_names.append(param.id)
 
+        # Generate function body
         body_code = "\n".join([self.generate(s) for s in stmt.body.body])
         self.context.exit_function()
 
-        # In real implementation, would use proper C syntax
-        return f"luaValue {func_name}(luaState* state) {{\n{body_code}\n}}"
+        # Generate C function signature with parameters
+        params_str = ", ".join([f"luaValue {p}" for p in param_names])
+        return f"luaValue {func_name}(luaState* state{', ' + params_str if params_str else ''}) {{\n{body_code}\n}}"
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
         """Generate code for function call statement"""
         expr_code = self.expr_gen.generate(stmt)
         return f"{expr_code};"
 
-    def visit_Invoke(self, stmt: astnodes.Invoke) -> None:
-        """Generate code for method invocation"""
-        raise NotImplementedError("Method invocation not yet implemented")
+    def visit_Invoke(self, stmt: astnodes.Invoke) -> str:
+        """Generate code for method invocation statement"""
+        expr_code = self.expr_gen.generate(stmt)
+        return f"{expr_code};"
 
-    def visit_While(self, stmt: astnodes.While) -> None:
+    def visit_While(self, stmt: astnodes.While) -> str:
         """Generate code for while loop"""
-        raise NotImplementedError("While loops not yet implemented")
+        test = self.expr_gen.generate(stmt.test)
+        body = "\n    ".join([self.generate(s) for s in stmt.body.body])
+        return f"while ({test}.is_truthy()) {{\n    {body}\n}}"
 
-    def visit_Repeat(self, stmt: astnodes.Repeat) -> None:
+    def visit_Repeat(self, stmt: astnodes.Repeat) -> str:
         """Generate code for repeat-until loop"""
-        raise NotImplementedError("Repeat-until loops not yet implemented")
+        body = "\n    ".join([self.generate(s) for s in stmt.body.body])
+        test = self.expr_gen.generate(stmt.test)
+        return f"do {{\n    {body}\n}} while (!{test}.is_truthy());"
 
-    def visit_If(self, stmt: astnodes.If) -> None:
+    def visit_If(self, stmt: astnodes.If) -> str:
         """Generate code for if statement"""
-        raise NotImplementedError("If statements not yet implemented")
+        test = self.expr_gen.generate(stmt.test)
+        if_body = "\n    ".join([self.generate(s) for s in stmt.body.body])
 
-    def visit_Forin(self, stmt: astnodes.Forin) -> None:
+        result = [f"if ({test}.is_truthy()) {{", f"    {if_body}", "}"]
+
+        if stmt.orelse:
+            if isinstance(stmt.orelse, list) and stmt.orelse:
+                else_body = "\n    ".join([self.generate(s) for s in stmt.orelse])
+                result.append(f"else {{")
+                result.append(f"    {else_body}")
+                result.append("}")
+            elif isinstance(stmt.orelse, astnodes.Block) and stmt.orelse.body:
+                else_body = "\n    ".join([self.generate(s) for s in stmt.orelse.body])
+                result.append(f"else {{")
+                result.append(f"    {else_body}")
+                result.append("}")
+
+        return "\n".join(result)
+
+    def visit_Forin(self, stmt: astnodes.Forin) -> str:
         """Generate code for for-in loop"""
-        raise NotImplementedError("For-in loops not yet implemented")
+        iter_exprs = ", ".join([self.expr_gen.generate(e) for e in stmt.iter])
+        target_names = ", ".join([t.id for t in stmt.targets if hasattr(t, 'id')])
+        body = "\n    ".join([self.generate(s) for s in stmt.body.body])
+        return f"for ({target_names} in {iter_exprs}) {{\n    {body}\n}}"
 
-    def visit_Fornum(self, stmt: astnodes.Fornum) -> None:
+    def visit_Fornum(self, stmt: astnodes.Fornum) -> str:
         """Generate code for numeric for loop"""
-        raise NotImplementedError("Numeric for loops not yet implemented")
+        target_name = stmt.target.id if hasattr(stmt.target, 'id') else "i"
+        start = self.expr_gen.generate(stmt.start)
+        stop = self.expr_gen.generate(stmt.stop)
+        step = self.expr_gen.generate(stmt.step) if stmt.step else "luaValue(1)"
+        body = "\n    ".join([self.generate(s) for s in stmt.body.body])
+        return f"for (luaValue {target_name} = {start}; ({target_name} < {stop}).is_truthy(); {target_name} = {target_name} + {step}) {{\n    {body}\n}}"
 
     def visit_Return(self, stmt: astnodes.Return) -> str:
         """Generate code for return statement"""
-        if stmt.values:
-            values = [self.expr_gen.generate(v) for v in stmt.values]
-            return f"return {len(values)}, &((luaValue[]){{{', '.join(values)}}});"
-        else:
-            return "return 0, NULL;"
+        if not stmt.values:
+            return "return luaValue();"
+
+        if len(stmt.values) == 1:
+            return f"return {self.expr_gen.generate(stmt.values[0])};"
+
+        # Multiple return values - wrap in std::vector
+        values = ", ".join([self.expr_gen.generate(v) for v in stmt.values])
+        return f"return std::vector<luaValue>({{{values}}});"
 
     def visit_Break(self, stmt: astnodes.Break) -> str:
         """Generate code for break statement"""
         return "break;"
 
-    def visit_Label(self, stmt: astnodes.Label) -> None:
+    def visit_Label(self, stmt: astnodes.Label) -> str:
         """Generate code for label"""
         raise NotImplementedError("Labels and goto not yet implemented")
 
-    def visit_Goto(self, stmt: astnodes.Goto) -> None:
+    def visit_Goto(self, stmt: astnodes.Goto) -> str:
         """Generate code for goto statement"""
         raise NotImplementedError("Labels and goto not yet implemented")
 
-    def visit_Do(self, stmt: astnodes.Do) -> None:
+    def visit_Do(self, stmt: astnodes.Do) -> str:
         """Generate code for do block"""
-        raise NotImplementedError("Do blocks not yet implemented")
+        body = "\n    ".join([self.generate(s) for s in stmt.body.body])
+        return f"do {{\n    {body}\n}} while (0);"

@@ -1,10 +1,10 @@
-# Lua2C Transpiler
+# Lua2C++ Transpiler
 
-A maintainable, extensible transpiler from Lua 5.4 to C.
+A maintainable, extensible transpiler from Lua 5.4 to C++.
 
 ## Project Overview
 
-Lua2C translates Lua 5.4 source code into C with the following key design principles:
+Lua2C translates Lua 5.4 source code into C++ with the following key design principles:
 
 - **Modular Output**: One C file per module (not monolithic)
 - **Static Strings**: String pool approach with static C strings (no runtime allocation for literals)

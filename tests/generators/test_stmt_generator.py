@@ -59,7 +59,7 @@ class TestStmtGenerator:
         local_assign = tree.body.body[0]
         result = generator.generate(local_assign)
         assert "luaValue" in result
-        assert "L2C_NIL" in result
+        assert "luaValue()" in result
 
     def test_generate_local_function(self, generator, context):
         """Test generating local function definition"""
@@ -78,7 +78,6 @@ class TestStmtGenerator:
         tree = ast.parse(src)
         call = tree.body.body[0]
         result = generator.generate(call)
-        assert "L2C_CALL" in result
         assert ";" in result
 
     def test_generate_return_no_value(self, generator):
@@ -88,6 +87,7 @@ class TestStmtGenerator:
         ret = tree.body.body[0]
         result = generator.generate(ret)
         assert "return" in result
+        assert "luaValue()" in result
 
     def test_generate_return_single_value(self, generator):
         """Test generating return with single value"""
@@ -96,7 +96,7 @@ class TestStmtGenerator:
         ret = tree.body.body[0]
         result = generator.generate(ret)
         assert "return" in result
-        assert "1" in result
+        assert "42" in result
 
     def test_generate_return_multiple_values(self, generator):
         """Test generating return with multiple values"""
@@ -115,34 +115,82 @@ class TestStmtGenerator:
         result = generator.generate(break_stmt)
         assert result == "break;"
 
-    def test_generate_unsupported_statement(self, generator):
-        """Test that unsupported statements raise error"""
-        stmt = astnodes.Do(body=astnodes.Block([]))
-        with pytest.raises(NotImplementedError):
-            generator.generate(stmt)
+    def test_generate_invoke_statement(self, generator):
+        """Test generating method invocation statement"""
+        source = astnodes.Name(identifier="obj")
+        func = astnodes.Name(identifier="method")
+        stmt = astnodes.Invoke(source=source, func=func, args=[])
+        result = generator.generate(stmt)
+        assert ";" in result
 
-    def test_generate_while_not_implemented(self, generator):
-        """Test that while loops not implemented"""
+    def test_generate_while(self, generator):
+        """Test generating while loop"""
         stmt = astnodes.While(test=astnodes.TrueExpr(), body=astnodes.Block([]))
-        with pytest.raises(NotImplementedError):
-            generator.generate(stmt)
+        result = generator.generate(stmt)
+        assert "while" in result
+        assert "is_truthy" in result
 
-    def test_generate_if_not_implemented(self, generator):
-        """Test that if statements not implemented"""
+    def test_generate_if(self, generator):
+        """Test generating if statement"""
         stmt = astnodes.If(
             test=astnodes.TrueExpr(),
             body=astnodes.Block([]),
             orelse=None
         )
-        with pytest.raises(NotImplementedError):
-            generator.generate(stmt)
+        result = generator.generate(stmt)
+        assert "if" in result
+        assert "is_truthy" in result
 
-    def test_generate_for_in_not_implemented(self, generator):
-        """Test that for-in loops not implemented"""
+    def test_generate_if_with_else(self, generator):
+        """Test generating if-else statement"""
+        stmt = astnodes.If(
+            test=astnodes.TrueExpr(),
+            body=astnodes.Block([]),
+            orelse=[astnodes.Call(func=astnodes.Name(identifier="print"), args=[])]
+        )
+        result = generator.generate(stmt)
+        assert "if" in result
+        assert "else" in result
+
+    def test_generate_repeat(self, generator):
+        """Test generating repeat-until loop"""
+        stmt = astnodes.Repeat(test=astnodes.TrueExpr(), body=astnodes.Block([]))
+        result = generator.generate(stmt)
+        assert "do" in result
+        assert "while" in result
+
+    def test_generate_for_in(self, generator):
+        """Test generating for-in loop"""
         stmt = astnodes.Forin(
             body=astnodes.Block([]),
             iter=[astnodes.Name(identifier="t")],
             targets=[astnodes.Name(identifier="k")]
         )
+        result = generator.generate(stmt)
+        assert "for" in result
+
+    def test_generate_for_num(self, generator):
+        """Test generating numeric for loop"""
+        stmt = astnodes.Fornum(
+            target=astnodes.Name(identifier="i"),
+            start=astnodes.Number(n=1),
+            stop=astnodes.Number(n=10),
+            step=astnodes.Number(n=1),
+            body=astnodes.Block([])
+        )
+        result = generator.generate(stmt)
+        assert "for" in result
+        assert "luaValue" in result
+
+    def test_generate_do(self, generator):
+        """Test generating do block"""
+        stmt = astnodes.Do(body=astnodes.Block([]))
+        result = generator.generate(stmt)
+        assert "do" in result
+        assert "while" in result
+
+    def test_generate_unsupported_statement(self, generator):
+        """Test that unsupported statements raise error"""
+        stmt = astnodes.Label(label_id=astnodes.Name(identifier="label"))
         with pytest.raises(NotImplementedError):
             generator.generate(stmt)

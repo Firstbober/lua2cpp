@@ -1,4 +1,4 @@
-"""Main CLI entry point for Lua2C transpiler"""
+"""Main CLI entry point for Lua2C++ transpiler"""
 
 import sys
 from pathlib import Path
@@ -10,18 +10,17 @@ except ImportError:
     sys.exit(1)
 
 from lua2c.core.context import TranslationContext
-from lua2c.generators.expr_generator import ExprGenerator
-from lua2c.generators.stmt_generator import StmtGenerator
+from lua2c.generators.cpp_emitter import CppEmitter
 
 
 def transpile_file(input_file: Path) -> str:
-    """Transpile a single Lua file to C
+    """Transpile a single Lua file to C++
 
     Args:
         input_file: Path to Lua source file
 
     Returns:
-        Generated C code
+        Generated C++ code
     """
     # Read Lua source
     with open(input_file, 'r', encoding='utf-8') as f:
@@ -38,24 +37,9 @@ def transpile_file(input_file: Path) -> str:
     module_path = str(rel_path.parent) if hasattr(rel_path, 'parent') else str(rel_path)
     context = TranslationContext(Path.cwd(), module_path)
 
-    # Generate code
-    stmt_gen = StmtGenerator(context)
-
-    code_lines = [
-        f"// Auto-generated from {input_file}",
-        f"// Lua2C Transpiler",
-        "",
-        "#include \"lua_value.h\"",
-        "#include \"lua_state.h\"",
-        "",
-    ]
-
-    # Generate all statements
-    for stmt in tree.body.body:
-        stmt_code = stmt_gen.generate(stmt)
-        code_lines.append(stmt_code)
-
-    return "\n".join(code_lines)
+    # Generate C++ code using emitter
+    emitter = CppEmitter(context)
+    return emitter.generate_file(tree, input_file)
 
 
 def main() -> None:
@@ -71,8 +55,8 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        c_code = transpile_file(input_file)
-        print(c_code)
+        cpp_code = transpile_file(input_file)
+        print(cpp_code)
     except Exception as e:
         print(f"Error transpiling {input_file}: {e}")
         import traceback

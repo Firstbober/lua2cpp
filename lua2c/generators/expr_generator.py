@@ -1,6 +1,6 @@
 """Expression generator for Lua2C transpiler
 
-Translates Lua expressions to C code.
+Translates Lua expressions to C++ code.
 Handles all expression types: literals, variables, operations, calls, etc.
 """
 
@@ -14,7 +14,7 @@ except ImportError:
 
 
 class ExprGenerator:
-    """Generates C code for Lua expressions"""
+    """Generates C++ code for Lua expressions"""
 
     def __init__(self, context: TranslationContext) -> None:
         """Initialize expression generator
@@ -25,13 +25,13 @@ class ExprGenerator:
         self.context = context
 
     def generate(self, expr: astnodes.Node) -> str:
-        """Generate C code for an expression
+        """Generate C++ code for an expression
 
         Args:
             expr: Expression AST node
 
         Returns:
-            C code string
+            C++ code string
         """
         method_name = f"visit_{expr.__class__.__name__}"
         method = getattr(self, method_name, self._generic_visit)
@@ -44,7 +44,7 @@ class ExprGenerator:
             expr: Expression node
 
         Returns:
-            C code string
+            C++ code string
 
         Raises:
             NotImplementedError: If node type not supported
@@ -60,15 +60,10 @@ class ExprGenerator:
             expr: Number node
 
         Returns:
-            C code for number literal
+            C++ code for number literal
         """
         value = expr.n
-        if isinstance(value, int):
-            return f"L2C_NUMBER_INT({value})"
-        elif isinstance(value, float):
-            return f"L2C_NUMBER_FLOAT({value})"
-        else:
-            return f"L2C_NUMBER_INT({value})"
+        return f"luaValue({value})"
 
     def visit_String(self, expr: astnodes.String) -> str:
         """Generate code for string literal
@@ -77,10 +72,11 @@ class ExprGenerator:
             expr: String node
 
         Returns:
-            C code for string literal
+            C++ code for string literal
         """
-        index = self.context.add_string_literal(expr.s)
-        return f"L2C_STRING_LITERAL({index})"
+        string_value = expr.s.decode() if isinstance(expr.s, bytes) else expr.s
+        index = self.context.add_string_literal(string_value)
+        return f'luaValue(string_pool[{index}])'
 
     def visit_Nil(self, expr: astnodes.Nil) -> str:
         """Generate code for nil
@@ -89,9 +85,9 @@ class ExprGenerator:
             expr: Nil node
 
         Returns:
-            C code for nil
+            C++ code for nil
         """
-        return "L2C_NIL"
+        return "luaValue()"
 
     def visit_TrueExpr(self, expr: astnodes.TrueExpr) -> str:
         """Generate code for true
@@ -100,9 +96,9 @@ class ExprGenerator:
             expr: TrueExpr node
 
         Returns:
-            C code for true
+            C++ code for true
         """
-        return "L2C_TRUE"
+        return "luaValue(true)"
 
     def visit_FalseExpr(self, expr: astnodes.FalseExpr) -> str:
         """Generate code for false
@@ -111,9 +107,9 @@ class ExprGenerator:
             expr: FalseExpr node
 
         Returns:
-            C code for false
+            C++ code for false
         """
-        return "L2C_FALSE"
+        return "luaValue(false)"
 
     def visit_Name(self, expr: astnodes.Name) -> str:
         """Generate code for variable reference
@@ -122,16 +118,16 @@ class ExprGenerator:
             expr: Name node
 
         Returns:
-            C code for variable reference
+            C++ code for variable reference
         """
         name = expr.id
         symbol = self.context.resolve_symbol(name)
 
         if symbol is None:
-            return f"L2C_GET_GLOBAL(\"{name}\")"
+            return f'state->get_global("{name}")'
 
         if symbol.is_global:
-            return f"L2C_GET_GLOBAL(\"{name}\")"
+            return f'state->get_global("{name}")'
         else:
             return name
 
@@ -139,139 +135,166 @@ class ExprGenerator:
         """Generate code for addition operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_ADD, {right})"
+        return f"{left} + {right}"
 
     def visit_SubOp(self, expr: astnodes.SubOp) -> str:
         """Generate code for subtraction operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_SUB, {right})"
+        return f"{left} - {right}"
 
     def visit_MultOp(self, expr: astnodes.MultOp) -> str:
         """Generate code for multiplication operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_MUL, {right})"
+        return f"{left} * {right}"
 
     def visit_FloatDivOp(self, expr: astnodes.FloatDivOp) -> str:
         """Generate code for division operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_DIV, {right})"
+        return f"{left} / {right}"
 
     def visit_FloorDivOp(self, expr: astnodes.FloorDivOp) -> str:
         """Generate code for floor division operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_FLOOR_DIV, {right})"
+        return f"l2c_floor_div({left}, {right})"
 
     def visit_ModOp(self, expr: astnodes.ModOp) -> str:
         """Generate code for modulo operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_MOD, {right})"
+        return f"{left} % {right}"
 
     def visit_ExpoOp(self, expr: astnodes.ExpoOp) -> str:
         """Generate code for exponentiation operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_POW, {right})"
+        return f"l2c_pow({left}, {right})"
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
         """Generate code for equality operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_EQ, {right})"
+        return f"{left} == {right}"
 
     def visit_NotEqToOp(self, expr: astnodes.NotEqToOp) -> str:
         """Generate code for inequality operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_NE, {right})"
+        return f"{left} != {right}"
 
     def visit_LessThanOp(self, expr: astnodes.LessThanOp) -> str:
         """Generate code for less-than operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_LT, {right})"
+        return f"{left} < {right}"
 
     def visit_LessOrEqThanOp(self, expr: astnodes.LessOrEqThanOp) -> str:
         """Generate code for less-than-or-equal operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_LE, {right})"
+        return f"{left} <= {right}"
 
     def visit_GreaterThanOp(self, expr: astnodes.GreaterThanOp) -> str:
         """Generate code for greater-than operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_GT, {right})"
+        return f"{left} > {right}"
 
     def visit_GreaterOrEqThanOp(self, expr: astnodes.GreaterOrEqThanOp) -> str:
         """Generate code for greater-than-or-equal operation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_GE, {right})"
+        return f"{left} >= {right}"
 
     def visit_Concat(self, expr: astnodes.Concat) -> str:
         """Generate code for string concatenation"""
         left = self.generate(expr.left)
         right = self.generate(expr.right)
-        return f"L2C_BINOP({left}, L2C_OP_CONCAT, {right})"
+        return f"l2c_concat({left}, {right})"
 
     def visit_AndLoOp(self, expr: astnodes.AndLoOp) -> str:
-        """Generate code for logical and (short-circuit)"""
-        raise NotImplementedError("Short-circuit and operation needs special handling")
+        """Generate code for logical and (short-circuit)
+
+        Lua's 'and': return right if left is truthy, else return left
+        C++: left.is_truthy() ? right : left
+        """
+        left = self.generate(expr.left)
+        right = self.generate(expr.right)
+        return f"({left}).is_truthy() ? ({right}) : ({left})"
 
     def visit_OrLoOp(self, expr: astnodes.OrLoOp) -> str:
-        """Generate code for logical or (short-circuit)"""
-        raise NotImplementedError("Short-circuit or operation needs special handling")
+        """Generate code for logical or (short-circuit)
+
+        Lua's 'or': return left if left is truthy, else return right
+        C++: left.is_truthy() ? left : right
+        """
+        left = self.generate(expr.left)
+        right = self.generate(expr.right)
+        return f"({left}).is_truthy() ? ({left}) : ({right})"
 
     def visit_UMinusOp(self, expr: astnodes.UMinusOp) -> str:
         """Generate code for unary negation"""
         operand = self.generate(expr.operand)
-        return f"L2C_UNOP(L2C_OP_NEG, {operand})"
+        return f"-({operand})"
 
     def visit_ULNotOp(self, expr: astnodes.ULNotOp) -> str:
         """Generate code for unary logical not"""
         operand = self.generate(expr.operand)
-        return f"L2C_UNOP(L2C_OP_NOT, {operand})"
+        return f"!({operand}).is_truthy()"
 
     def visit_ULengthOP(self, expr: astnodes.ULengthOP) -> str:
         """Generate code for unary length"""
         operand = self.generate(expr.operand)
-        return f"L2C_UNOP(L2C_OP_LEN, {operand})"
+        return f"l2c_len({operand})"
 
     def visit_Call(self, expr: astnodes.Call) -> str:
         """Generate code for function call"""
         func = self.generate(expr.func)
         args = ", ".join([self.generate(arg) for arg in expr.args])
-        return f"L2C_CALL({func}, {len(expr.args)}, &((luaValue[]){{{args}}}))"
+        return f"({func})({{{args}}})"
 
-    def visit_Invoke(self, expr: astnodes.Invoke) -> None:
-        """Generate code for method invocation"""
-        raise NotImplementedError("Method invocation not yet implemented")
+    def visit_Invoke(self, expr: astnodes.Invoke) -> str:
+        """Generate code for method invocation (obj:method(args))
 
-    def visit_Index(self, expr: astnodes.Index) -> None:
-        """Generate code for table index"""
-        raise NotImplementedError("Table indexing not yet implemented")
+        Lua: obj:method(args)
+        C++: obj["method"]({obj, args})
+        """
+        source = self.generate(expr.source)
+        method = self.generate(expr.func)
+        args = ", ".join([self.generate(arg) for arg in expr.args])
+        return f"({source})[{method}]({{{source}, {args}}})"
 
-    def visit_Field(self, expr: astnodes.Field) -> None:
-        """Generate code for table field access"""
-        raise NotImplementedError("Table field access not yet implemented")
+    def visit_Index(self, expr: astnodes.Index) -> str:
+        """Generate code for table index (table[key])"""
+        table = self.generate(expr.value)
+        key = self.generate(expr.idx)
+        return f"({table})[{key}]"
 
-    def visit_Table(self, expr: astnodes.Table) -> None:
+    def visit_Field(self, expr: astnodes.Field) -> str:
+        """Generate code for table field access (table.field)"""
+        table = self.generate(expr.value)
+        if expr.key and isinstance(expr.key, astnodes.Name):
+            field_name = expr.key.id
+            index = self.context.add_string_literal(field_name)
+            return f'({table})[string_pool[{index}]]'
+        else:
+            return f'({table})[luaValue(1)]'
+
+    def visit_Table(self, expr: astnodes.Table) -> str:
         """Generate code for table constructor"""
-        raise NotImplementedError("Table constructors not yet implemented")
+        return "luaValue::new_table()"
 
-    def visit_AnonymousFunction(self, expr: astnodes.AnonymousFunction) -> None:
+    def visit_AnonymousFunction(self, expr: astnodes.AnonymousFunction) -> str:
         """Generate code for anonymous function"""
-        raise NotImplementedError("Anonymous functions not yet implemented")
+        return "luaValue::new_closure()"
 
     def visit_Dots(self, expr: astnodes.Dots) -> str:
         """Generate code for varargs"""
-        return "L2C_VARARGS"
+        return "luaValue::varargs()"
 
-    def visit_Function(self, expr: astnodes.Function) -> None:
+    def visit_Function(self, expr: astnodes.Function) -> str:
         """Generate code for function definition"""
         raise NotImplementedError("Function definitions not yet implemented")
