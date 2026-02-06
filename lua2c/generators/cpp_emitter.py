@@ -80,6 +80,7 @@ class CppEmitter:
             "#include \"lua_value.hpp\"",
             "#include \"lua_state.hpp\"",
             "#include \"lua_table.hpp\"",
+            "#include \"lua_array.hpp\"",
             "#include <vector>",
             "#include <string>",
             "#include <deque>",

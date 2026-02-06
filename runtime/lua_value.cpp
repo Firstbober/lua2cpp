@@ -100,6 +100,7 @@ bool luaValue::operator>=(const luaValue& other) const {
     return lhs >= rhs;
 }
 
+
 luaValue& luaValue::operator[](int index) {
     if (type_ != LuaType::TABLE) {
         throw std::runtime_error("Attempt to index non-table value");

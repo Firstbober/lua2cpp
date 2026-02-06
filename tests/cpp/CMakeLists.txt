@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(lua2c_tests)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Runtime library files
@@ -9,6 +9,7 @@ set(RUNTIME_SOURCES
     ${CMAKE_SOURCE_DIR}/../../runtime/lua_value.cpp
     ${CMAKE_SOURCE_DIR}/../../runtime/lua_state.cpp
     ${CMAKE_SOURCE_DIR}/../../runtime/lua_table.cpp
+    ${CMAKE_SOURCE_DIR}/../../runtime/lua_array.cpp
 )
 
 # Include directories

@@ -150,9 +150,9 @@ class StmtGenerator:
                                 table_info = type_inferencer.get_table_info(var_name)
                             
                             if table_info and table_info.is_array and table_info.value_type:
-                                # Typed array - use concrete container type
+                                # Typed array - use luaArray container type (auto-grows on out-of-bounds access)
                                 element_cpp_type = table_info.value_type.cpp_type()
-                                cpp_type = f"std::deque<{element_cpp_type}>"
+                                cpp_type = f"luaArray<{element_cpp_type}>"
                                 # Set expected type for value expression to generate native literals
                                 self.expr_gen._set_expected_type(value, table_info.value_type)
                                 # Attach table_info to the table expression for visit_Table to use
@@ -162,9 +162,9 @@ class StmtGenerator:
                                 self.expr_gen._clear_expected_type(value)
                                 code_lines.append(f"{cpp_type} {var_name} = {value_code};")
                             elif table_info and table_info.is_array:
-                                # Array but unknown element type - use deque of luaValue
+                                # Array but unknown element type - use luaValue for dynamic typing
                                 value_code = self.expr_gen.generate(value)
-                                code_lines.append(f"std::deque<luaValue> {var_name} = {value_code};")
+                                code_lines.append(f"luaValue {var_name} = {value_code};")
                             else:
                                 # Regular table or unknown type - use luaValue
                                 value_code = self.expr_gen.generate(value)

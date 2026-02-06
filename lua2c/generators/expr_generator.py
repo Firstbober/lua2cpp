@@ -739,30 +739,35 @@ class ExprGenerator:
             element_type = table_info.value_type
         
         # Generate typed table when possible
-        if is_array and element_type and element_type.can_specialize():
-            cpp_type = element_type.cpp_type()
-            if cpp_type == "auto":
+        if is_array:
+            # Handle typed array
+            if element_type and element_type.can_specialize():
+                cpp_type = element_type.cpp_type()
+                if cpp_type == "auto":
+                    return "luaValue::new_table()"
+                
+                # Set expected type for all elements to generate native literals
+                elements = []
+                if hasattr(expr, 'fields') and expr.fields:
+                    for field in expr.fields:
+                        if hasattr(field, 'value'):
+                            self._set_expected_type(field.value, element_type)
+                            elements.append(self.generate(field.value))
+                            self._clear_expected_type(field.value)
+                
+                # Annotate the table expression with its concrete type
+                # This helps downstream code generation know what type this expression has
+                table_type = Type(TypeKind.TABLE)
+                ASTAnnotationStore.set_type(expr, table_type)
+                
+                if elements:
+                    return f"luaArray<{cpp_type}>{{{{{', '.join(elements)}}}}}"
+                return f"luaArray<{cpp_type}>{{{{}}}}"
+            # Handle array with unknown element type - use luaValue for dynamic typing
+            elif element_type is None:
                 return "luaValue::new_table()"
-            
-            # Set expected type for all elements to generate native literals
-            elements = []
-            if hasattr(expr, 'fields') and expr.fields:
-                for field in expr.fields:
-                    if hasattr(field, 'value'):
-                        self._set_expected_type(field.value, element_type)
-                        elements.append(self.generate(field.value))
-                        self._clear_expected_type(field.value)
-            
-            # Annotate the table expression with its concrete type
-            # This helps downstream code generation know what type this expression has
-            table_type = Type(TypeKind.TABLE)
-            ASTAnnotationStore.set_type(expr, table_type)
-            
-            if elements:
-                return f"std::deque<{cpp_type}>{{{', '.join(elements)}}}"
-            return f"std::deque<{cpp_type}>{{}}"
         
-        # Fall back to luaValue table
+        # Fall back to luaValue table (for maps or unknown types)
         return "luaValue::new_table()"
 
     def _get_table_info_from_context(self, expr: astnodes.Node) -> Optional['TableTypeInfo']:
