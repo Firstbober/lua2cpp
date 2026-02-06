@@ -14,7 +14,7 @@ class TestIntegration:
 
     def test_spectral_norm_transpiles(self):
         """Test that spectral-norm.lua transpiles successfully"""
-        input_file = Path("benchmarks/spectral-norm.lua")
+        input_file = Path("tests/cpp/lua/spectral-norm.lua")
         assert input_file.exists(), "spectral-norm.lua benchmark file not found"
 
         cpp_code = transpile_file(input_file)
@@ -25,7 +25,7 @@ class TestIntegration:
 
     def test_spectral_norm_has_functions(self):
         """Test that spectral-norm.lua generates expected functions"""
-        input_file = Path("benchmarks/spectral-norm.lua")
+        input_file = Path("tests/cpp/lua/spectral-norm.lua")
         cpp_code = transpile_file(input_file)
 
         # Check for expected function definitions
@@ -36,7 +36,7 @@ class TestIntegration:
 
     def test_spectral_norm_has_loops(self):
         """Test that spectral-norm.lua generates for loops correctly"""
-        input_file = Path("benchmarks/spectral-norm.lua")
+        input_file = Path("tests/cpp/lua/spectral-norm.lua")
         cpp_code = transpile_file(input_file)
 
         # Check for for loops with correct pattern
@@ -45,9 +45,9 @@ class TestIntegration:
 
     def test_simple_file_transpiles(self):
         """Test that simple.lua transpiles successfully"""
-        input_file = Path("tests/simple.lua")
+        input_file = Path("tests/cpp/lua/simple.lua")
         if not input_file.exists():
-            pytest.skip("tests/simple.lua not found")
+            pytest.skip("tests/cpp/lua/simple.lua not found")
 
         cpp_code = transpile_file(input_file)
         assert cpp_code is not None
@@ -56,7 +56,7 @@ class TestIntegration:
 
     def test_spectral_norm_string_pool(self):
         """Test that string literals are collected into pool"""
-        input_file = Path("benchmarks/spectral-norm.lua")
+        input_file = Path("tests/cpp/lua/spectral-norm.lua")
         cpp_code = transpile_file(input_file)
 
         # spectral-norm uses string format with "%0.9f\n"
@@ -72,9 +72,9 @@ class TestIntegration:
         import tempfile
         import shutil
 
-        input_file = Path("tests/simple.lua")
+        input_file = Path("tests/cpp/lua/simple.lua")
         if not input_file.exists():
-            pytest.skip("tests/simple.lua not found")
+            pytest.skip("tests/cpp/lua/simple.lua not found")
 
         cpp_code = transpile_file(input_file)
 
@@ -92,11 +92,11 @@ class TestIntegration:
 #include "runtime/lua_state.hpp"
 #include <iostream>
 
-extern "C" luaValue _l2c__tests__simple_export(luaState* state);
+extern "C" luaValue _l2c__simple_export(luaState* state);
 
 int main() {
     luaState state;
-    _l2c__tests__simple_export(&state);
+    _l2c__simple_export(&state);
     return 0;
 }
 """)

@@ -108,11 +108,18 @@ class StmtGenerator:
                 param_names.append(param.id)
 
         # Generate function body
-        body_code = "\n".join([self.generate(s) for s in stmt.body.body])
+        body_statements = [self.generate(s) for s in stmt.body.body]
+
+        # Add return statement if function doesn't end with one
+        if body_statements and not isinstance(stmt.body.body[-1], astnodes.Return):
+            body_statements.append("return luaValue();")
+
+        body_code = "\n".join(body_statements)
         self.context.exit_function()
 
         # Generate C function signature with parameters
-        params_str = ", ".join([f"luaValue {p}" for p in param_names])
+        # Use luaValue& for reference semantics to match Lua's pass-by-reference for tables/functions
+        params_str = ", ".join([f"luaValue& {p}" for p in param_names])
         return f"luaValue {func_name}(luaState* state{', ' + params_str if params_str else ''}) {{\n{body_code}\n}}"
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
@@ -181,7 +188,7 @@ class StmtGenerator:
             step = "luaValue(1)"
         body = "\n    ".join([self.generate(s) for s in stmt.body.body])
         self.context.exit_block()
-        return f"for (luaValue {target_name} = {start}; ({target_name} < {stop}).is_truthy(); {target_name} = {target_name} + {step}) {{\n    {body}\n}}"
+        return f"for (luaValue {target_name} = {start}; {target_name} <= {stop}; {target_name} = {target_name} + {step}) {{\n    {body}\n}}"
 
     def visit_Return(self, stmt: astnodes.Return) -> str:
         """Generate code for return statement"""

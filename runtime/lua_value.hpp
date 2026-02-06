@@ -53,7 +53,11 @@ public:
     bool operator>=(const luaValue& other) const;
 
     luaValue& operator[](int index);
+    luaValue& operator[](const std::string& key);
+    luaValue& operator[](const luaValue& key);
     const luaValue& operator[](int index) const;
+    const luaValue& operator[](const std::string& key) const;
+    const luaValue& operator[](const luaValue& key) const;
 
     luaValue operator()(const std::vector<luaValue>& args) const;
 

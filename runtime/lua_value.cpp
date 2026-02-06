@@ -1,5 +1,6 @@
 #include "lua_value.hpp"
 #include <stdexcept>
+#include <functional>
 
 luaValue::luaValue() : type_(LuaType::NIL), data_(std::monostate{}) {}
 
@@ -106,6 +107,32 @@ luaValue& luaValue::operator[](int index) {
     return std::get<std::map<int, luaValue>>(data_)[index];
 }
 
+luaValue& luaValue::operator[](const std::string& key) {
+    if (type_ != LuaType::TABLE) {
+        throw std::runtime_error("Attempt to index non-table value");
+    }
+    // For string keys, hash them to int for now
+    // TODO: Implement proper hash table with string keys
+    size_t hash = std::hash<std::string>{}(key);
+    return std::get<std::map<int, luaValue>>(data_)[static_cast<int>(hash)];
+}
+
+luaValue& luaValue::operator[](const luaValue& key) {
+    if (type_ != LuaType::TABLE) {
+        throw std::runtime_error("Attempt to index non-table value");
+    }
+    // For luaValue keys, convert to int or string
+    if (key.type_ == LuaType::NUMBER) {
+        return std::get<std::map<int, luaValue>>(data_)[static_cast<int>(key.as_number())];
+    } else if (key.type_ == LuaType::STRING) {
+        std::string str_key = key.as_string();
+        size_t hash = std::hash<std::string>{}(str_key);
+        return std::get<std::map<int, luaValue>>(data_)[static_cast<int>(hash)];
+    } else {
+        throw std::runtime_error("Invalid table key type");
+    }
+}
+
 const luaValue& luaValue::operator[](int index) const {
     if (type_ != LuaType::TABLE) {
         throw std::runtime_error("Attempt to index non-table value");
@@ -116,6 +143,46 @@ const luaValue& luaValue::operator[](int index) const {
     if (it != table.end()) {
         return it->second;
     }
+    return nil_value;
+}
+
+const luaValue& luaValue::operator[](const std::string& key) const {
+    if (type_ != LuaType::TABLE) {
+        throw std::runtime_error("Attempt to index non-table value");
+    }
+    static const luaValue nil_value;
+    size_t hash = std::hash<std::string>{}(key);
+    auto& table = std::get<std::map<int, luaValue>>(data_);
+    auto it = table.find(static_cast<int>(hash));
+    if (it != table.end()) {
+        return it->second;
+    }
+    return nil_value;
+}
+
+const luaValue& luaValue::operator[](const luaValue& key) const {
+    if (type_ != LuaType::TABLE) {
+        throw std::runtime_error("Attempt to index non-table value");
+    }
+    static const luaValue nil_value;
+    auto& table = std::get<std::map<int, luaValue>>(data_);
+
+    if (key.type_ == LuaType::NUMBER) {
+        int int_key = static_cast<int>(key.as_number());
+        auto it = table.find(int_key);
+        if (it != table.end()) {
+            return it->second;
+        }
+    } else if (key.type_ == LuaType::STRING) {
+        std::string str_key = key.as_string();
+        size_t hash = std::hash<std::string>{}(str_key);
+        int int_key = static_cast<int>(hash);
+        auto it = table.find(int_key);
+        if (it != table.end()) {
+            return it->second;
+        }
+    }
+
     return nil_value;
 }
 

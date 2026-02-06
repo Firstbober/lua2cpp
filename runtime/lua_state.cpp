@@ -17,43 +17,61 @@ luaState::luaState() {
         std::string format = args[0].as_string();
         std::ostringstream result;
         int pos = 1;
-        for (size_t i = 0; i < format.size(); ++i) {
+        size_t i = 0;
+        while (i < format.size()) {
             if (format[i] == '%' && i + 1 < format.size()) {
-                char spec = format[++i];
-                if (pos < static_cast<int>(args.size())) {
-                    switch (spec) {
-                        case 'f': {
-                            double val = args[pos++].as_number();
-                            int precision = 6;
-                            if (i + 1 < format.size() && format[i + 1] == '.') {
-                                i += 2;
-                                std::string prec_str;
-                                while (i < format.size() && isdigit(format[i])) {
-                                    prec_str += format[i++];
-                                }
-                                if (!prec_str.empty()) {
-                                    precision = std::stoi(prec_str);
-                                    i--;
-                                }
+                i++;
+                std::string flags;
+                int width = 0;
+                int precision = -1;
+
+                while (i < format.size() && (format[i] == '-' || format[i] == '+' || format[i] == ' ' || format[i] == '#' || format[i] == '0')) {
+                    flags += format[i++];
+                }
+
+                while (i < format.size() && isdigit(format[i])) {
+                    width = width * 10 + (format[i++] - '0');
+                }
+
+                if (i < format.size() && format[i] == '.') {
+                    i++;
+                    precision = 0;
+                    while (i < format.size() && isdigit(format[i])) {
+                        precision = precision * 10 + (format[i++] - '0');
+                    }
+                }
+
+                if (i < format.size()) {
+                    char spec = format[i++];
+                    if (pos < static_cast<int>(args.size())) {
+                        switch (spec) {
+                            case 'f': {
+                                double val = args[pos++].as_number();
+                                int actual_precision = (precision >= 0) ? precision : 6;
+                                result << std::fixed << std::setprecision(actual_precision) << val;
+                                break;
                             }
-                            result << std::fixed << std::setprecision(precision) << val;
-                            break;
+                            case 'd':
+                                result << static_cast<int>(args[pos++].as_number());
+                                break;
+                            case 's':
+                                result << args[pos++].as_string();
+                                break;
+                            case '\n':
+                                result << '\n';
+                                break;
+                            default:
+                                result << '%' << spec;
+                                break;
                         }
-                        case 'd':
-                            result << static_cast<int>(args[pos++].as_number());
-                            break;
-                        case 's':
-                            result << args[pos++].as_string();
-                            break;
-                        default:
-                            result << '%' << spec;
-                            break;
+                    } else {
+                        result << '%' << spec;
                     }
                 } else {
-                    result << '%' << spec;
+                    result << '%';
                 }
             } else {
-                result << format[i];
+                result << format[i++];
             }
         }
         return luaValue(result.str());

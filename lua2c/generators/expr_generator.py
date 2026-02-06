@@ -16,6 +16,33 @@ except ImportError:
 class ExprGenerator:
     """Generates C++ code for Lua expressions"""
 
+    LIBRARY_FUNCTIONS = {
+        'io': ['write', 'read', 'open', 'close', 'flush', 'type'],
+        'string': ['format', 'sub', 'upper', 'lower', 'rep', 'find', 'match', 'gmatch', 'gsub', 'byte', 'char', 'len'],
+        'math': ['abs', 'acos', 'asin', 'atan', 'ceil', 'cos', 'deg', 'exp', 'floor', 'fmod', 'log', 'max', 'min', 'modf', 'rad', 'random', 'randomseed', 'sin', 'sqrt', 'tan'],
+        'table': ['insert', 'remove', 'concat', 'sort', 'pack', 'unpack'],
+        'os': ['clock', 'date', 'difftime', 'time'],
+    }
+
+    PRECEDENCE = {
+        'ExpoOp': 10,
+        'MultOp': 9,
+        'FloatDivOp': 9,
+        'FloorDivOp': 9,
+        'ModOp': 9,
+        'AddOp': 8,
+        'SubOp': 8,
+        'Concat': 7,
+        'LessThanOp': 6,
+        'LessOrEqThanOp': 6,
+        'GreaterThanOp': 6,
+        'GreaterOrEqThanOp': 6,
+        'EqToOp': 6,
+        'NotEqToOp': 6,
+        'AndLoOp': 5,
+        'OrLoOp': 4,
+    }
+
     def __init__(self, context: TranslationContext) -> None:
         """Initialize expression generator
 
@@ -36,6 +63,25 @@ class ExprGenerator:
         method_name = f"visit_{expr.__class__.__name__}"
         method = getattr(self, method_name, self._generic_visit)
         return method(expr)
+
+    def generate_with_parentheses(self, node: astnodes.Node, parent_op: str) -> str:
+        """Generate C++ code for an expression, adding parentheses if needed
+
+        Args:
+            node: Expression AST node
+            parent_op: Parent operator type name (for precedence checking)
+
+        Returns:
+            C++ code string with appropriate parentheses
+        """
+        code = self.generate(node)
+        node_op = node.__class__.__name__
+
+        if node_op in self.PRECEDENCE and parent_op in self.PRECEDENCE:
+            if self.PRECEDENCE[node_op] < self.PRECEDENCE[parent_op]:
+                return f"({code})"
+
+        return code
 
     def _generic_visit(self, expr: astnodes.Node) -> str:
         """Default visitor for unhandled node types
@@ -133,44 +179,44 @@ class ExprGenerator:
 
     def visit_AddOp(self, expr: astnodes.AddOp) -> str:
         """Generate code for addition operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'AddOp')
+        right = self.generate_with_parentheses(expr.right, 'AddOp')
         return f"{left} + {right}"
 
     def visit_SubOp(self, expr: astnodes.SubOp) -> str:
         """Generate code for subtraction operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'SubOp')
+        right = self.generate_with_parentheses(expr.right, 'SubOp')
         return f"{left} - {right}"
 
     def visit_MultOp(self, expr: astnodes.MultOp) -> str:
         """Generate code for multiplication operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'MultOp')
+        right = self.generate_with_parentheses(expr.right, 'MultOp')
         return f"{left} * {right}"
 
     def visit_FloatDivOp(self, expr: astnodes.FloatDivOp) -> str:
         """Generate code for division operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'FloatDivOp')
+        right = self.generate_with_parentheses(expr.right, 'FloatDivOp')
         return f"{left} / {right}"
 
     def visit_FloorDivOp(self, expr: astnodes.FloorDivOp) -> str:
         """Generate code for floor division operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'FloorDivOp')
+        right = self.generate_with_parentheses(expr.right, 'FloorDivOp')
         return f"l2c_floor_div({left}, {right})"
 
     def visit_ModOp(self, expr: astnodes.ModOp) -> str:
         """Generate code for modulo operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'ModOp')
+        right = self.generate_with_parentheses(expr.right, 'ModOp')
         return f"{left} % {right}"
 
     def visit_ExpoOp(self, expr: astnodes.ExpoOp) -> str:
         """Generate code for exponentiation operation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'ExpoOp')
+        right = self.generate_with_parentheses(expr.right, 'ExpoOp')
         return f"l2c_pow({left}, {right})"
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
@@ -211,8 +257,8 @@ class ExprGenerator:
 
     def visit_Concat(self, expr: astnodes.Concat) -> str:
         """Generate code for string concatenation"""
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
+        left = self.generate_with_parentheses(expr.left, 'Concat')
+        right = self.generate_with_parentheses(expr.right, 'Concat')
         return f"l2c_concat({left}, {right})"
 
     def visit_AndLoOp(self, expr: astnodes.AndLoOp) -> str:
@@ -220,20 +266,40 @@ class ExprGenerator:
 
         Lua's 'and': return right if left is truthy, else return left
         C++: left.is_truthy() ? right : left
+
+        Note: This uses a lambda to avoid double evaluation of expressions with side effects.
         """
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"({left}).is_truthy() ? ({right}) : ({left})"
+        left_has_side_effects = self._has_side_effects(expr.left)
+        right_has_side_effects = self._has_side_effects(expr.right)
+
+        if left_has_side_effects or right_has_side_effects:
+            left = self.generate_with_parentheses(expr.left, 'AndLoOp')
+            right = self.generate_with_parentheses(expr.right, 'AndLoOp')
+            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return _l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left; }}()"
+        else:
+            left = self.generate_with_parentheses(expr.left, 'AndLoOp')
+            right = self.generate_with_parentheses(expr.right, 'AndLoOp')
+            return f"({left}).is_truthy() ? ({right}) : ({left})"
 
     def visit_OrLoOp(self, expr: astnodes.OrLoOp) -> str:
         """Generate code for logical or (short-circuit)
 
         Lua's 'or': return left if left is truthy, else return right
         C++: left.is_truthy() ? left : right
+
+        Note: This uses a lambda to avoid double evaluation of expressions with side effects.
         """
-        left = self.generate(expr.left)
-        right = self.generate(expr.right)
-        return f"({left}).is_truthy() ? ({left}) : ({right})"
+        left_has_side_effects = self._has_side_effects(expr.left)
+        right_has_side_effects = self._has_side_effects(expr.right)
+
+        if left_has_side_effects or right_has_side_effects:
+            left = self.generate_with_parentheses(expr.left, 'OrLoOp')
+            right = self.generate_with_parentheses(expr.right, 'OrLoOp')
+            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return _l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right; }}()"
+        else:
+            left = self.generate_with_parentheses(expr.left, 'OrLoOp')
+            right = self.generate_with_parentheses(expr.right, 'OrLoOp')
+            return f"({left}).is_truthy() ? ({left}) : ({right})"
 
     def visit_UMinusOp(self, expr: astnodes.UMinusOp) -> str:
         """Generate code for unary negation"""
@@ -276,8 +342,59 @@ class ExprGenerator:
         args = ", ".join([self.generate(arg) for arg in expr.args])
         return f"({source})[{method}]({{{source}, {args}}})"
 
+    def _is_library_function_index(self, expr: astnodes.Index) -> bool:
+        """Check if this Index expression represents a library function access (e.g., io.write)
+
+        Args:
+            expr: Index node to check
+
+        Returns:
+            True if this is a library function access
+        """
+        if not isinstance(expr.value, astnodes.Name):
+            return False
+
+        if not isinstance(expr.idx, astnodes.Name):
+            return False
+
+        lib_name = expr.value.id if hasattr(expr.value, 'id') else None
+        func_name = expr.idx.id if hasattr(expr.idx, 'id') else None
+
+        if lib_name is None or func_name is None:
+            return False
+
+        return lib_name in self.LIBRARY_FUNCTIONS and func_name in self.LIBRARY_FUNCTIONS[lib_name]
+
+    def _has_side_effects(self, expr: astnodes.Node) -> bool:
+        """Check if an expression has side effects (e.g., function call, get_global)
+
+        Args:
+            expr: Expression node to check
+
+        Returns:
+            True if expression has side effects
+        """
+        if isinstance(expr, astnodes.Call):
+            return True
+        if isinstance(expr, astnodes.Name):
+            name = expr.id if hasattr(expr, 'id') else None
+            if name:
+                symbol = self.context.resolve_symbol(name)
+                if symbol is None or symbol.is_global:
+                    return True
+        if isinstance(expr, astnodes.Index):
+            return self._has_side_effects(expr.value)
+        if isinstance(expr, astnodes.Field):
+            return self._has_side_effects(expr.value)
+        return False
+
     def visit_Index(self, expr: astnodes.Index) -> str:
         """Generate code for table index (table[key])"""
+        if self._is_library_function_index(expr):
+            lib_name = expr.value.id
+            func_name = expr.idx.id
+            return f'state->get_global("{lib_name}.{func_name}")'
+
         table = self.generate(expr.value)
         key = self.generate(expr.idx)
         return f"({table})[{key}]"
