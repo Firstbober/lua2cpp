@@ -114,8 +114,13 @@ class TypeInference:
             if hasattr(param, 'id'):
                 self._merge_type(param.id, Type(TypeKind.UNKNOWN))
 
+        # Infer function body and track parameter array usage
         for s in stmt.body.body:
             self._infer_statement(s)
+        
+        # Heuristic: if parameters are used with array indexing (read or write), mark them as arrays
+        for s in stmt.body.body:
+            self._track_param_array_usage(stmt.args, s)
 
     def _infer_expression(self, expr: astnodes.Node) -> Type:
         """Infer type of an expression"""
@@ -346,6 +351,49 @@ class TypeInference:
         if symbol in self.table_info:
             self.table_info[symbol].is_array = self.table_info[symbol].finalize_array()
         return self.table_info.get(symbol)
+
+    def _track_param_array_usage(self, params: list, stmt: astnodes.Node) -> None:
+        """Track if function parameters are used as arrays (heuristic for Fix 4)"""
+        param_names = {p.id for p in params if hasattr(p, 'id')}
+        
+        # Check if this statement uses array indexing on parameters (both read and write)
+        def check_for_param_array_index(node):
+            if isinstance(node, astnodes.Index):
+                if isinstance(node.value, astnodes.Name) and node.value.id in param_names:
+                    # Parameter used with array indexing - mark as array
+                    param_name = node.value.id
+                    if param_name not in self.table_info:
+                        self.table_info[param_name] = TableTypeInfo()
+                    self.table_info[param_name].is_array = True
+                    # Infer element type from index (NUMBER for array indices)
+                    if self.table_info[param_name].value_type is None:
+                        self.table_info[param_name].value_type = Type(TypeKind.NUMBER)
+            
+            # Recursively check children (manually since astnodes.iter_child_nodes may not exist)
+            if hasattr(node, 'left'):
+                check_for_param_array_index(node.left)
+            if hasattr(node, 'right'):
+                check_for_param_array_index(node.right)
+            if hasattr(node, 'body'):
+                for s in node.body.body:
+                    check_for_param_array_index(s)
+            if hasattr(node, 'target'):
+                check_for_param_array_index(node.target)
+            if hasattr(node, 'test'):
+                check_for_param_array_index(node.test)
+            if hasattr(node, 'expr'):
+                check_for_param_array_index(node.expr)
+            if hasattr(node, 'args'):
+                for arg in node.args:
+                    check_for_param_array_index(arg)
+            if hasattr(node, 'values'):
+                for val in node.values:
+                    check_for_param_array_index(val)
+            if hasattr(node, 'targets'):
+                for t in node.targets:
+                    check_for_param_array_index(t)
+        
+        check_for_param_array_index(stmt)
 
     def _mark_expr_chain_requires_lua_value(self, expr: astnodes.Node) -> None:
         """Mark an entire expression chain as requiring luaValue"""

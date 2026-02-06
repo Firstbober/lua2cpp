@@ -286,15 +286,29 @@ class ExprGenerator:
         right_type = self._get_inferred_expression_type(expr.right)
         result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
 
-        # If both operands and result are numbers, use native operator
-        if (left_type.kind == TypeKind.NUMBER and
-            right_type.kind == TypeKind.NUMBER and
-            (not result_type or result_type.kind == TypeKind.NUMBER)):
+        # Set expected type for this result expression (Fix 2)
+        if result_type and result_type.kind == TypeKind.NUMBER:
+            self._set_expected_type(expr, result_type)
+        else:
+            self._set_expected_type(expr, Type(TypeKind.NUMBER))
 
-            # Set expected types for operands to ensure native literals
-            self._set_expected_type(expr.left, left_type)
-            self._set_expected_type(expr.right, right_type)
+        # Set expected types for operands BEFORE checking (fixes order bug)
+        # This ensures recursive calls can use the expected type as a hint
+        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        self._set_expected_type(expr.left, left_type_hint)
+        self._set_expected_type(expr.right, right_type_hint)
 
+        # Get expected types for operands (use as hints when inferred is UNKNOWN)
+        left_expected = self._get_expected_type(expr.left)
+        right_expected = self._get_expected_type(expr.right)
+
+        # If both operands and result are numbers (or expected to be), use native operator
+        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
+        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
+
+        if left_is_number and right_is_number and result_is_number:
             left = self.generate(expr.left)
             right = self.generate(expr.right)
 
@@ -314,15 +328,29 @@ class ExprGenerator:
         right_type = self._get_inferred_expression_type(expr.right)
         result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
 
-        # If both operands and result are numbers, use native operator
-        if (left_type.kind == TypeKind.NUMBER and
-            right_type.kind == TypeKind.NUMBER and
-            (not result_type or result_type.kind == TypeKind.NUMBER)):
+        # Set expected type for this result expression (Fix 2)
+        if result_type and result_type.kind == TypeKind.NUMBER:
+            self._set_expected_type(expr, result_type)
+        else:
+            self._set_expected_type(expr, Type(TypeKind.NUMBER))
 
-            # Set expected types for operands to ensure native literals
-            self._set_expected_type(expr.left, left_type)
-            self._set_expected_type(expr.right, right_type)
+        # Set expected types for operands BEFORE checking (fixes order bug)
+        # This ensures recursive calls can use the expected type as a hint
+        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        self._set_expected_type(expr.left, left_type_hint)
+        self._set_expected_type(expr.right, right_type_hint)
 
+        # Get expected types for operands (use as hints when inferred is UNKNOWN)
+        left_expected = self._get_expected_type(expr.left)
+        right_expected = self._get_expected_type(expr.right)
+
+        # If both operands and result are numbers (or expected to be), use native operator
+        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
+        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
+
+        if left_is_number and right_is_number and result_is_number:
             left = self.generate(expr.left)
             right = self.generate(expr.right)
 
@@ -342,17 +370,36 @@ class ExprGenerator:
         right_type = self._get_inferred_expression_type(expr.right)
         result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
 
-        # If both operands and result are numbers, use native operator
-        if (left_type.kind == TypeKind.NUMBER and
-            right_type.kind == TypeKind.NUMBER and
-            (not result_type or result_type.kind == TypeKind.NUMBER)):
+        # Set expected type for this result expression (Fix 2)
+        if result_type and result_type.kind == TypeKind.NUMBER:
+            self._set_expected_type(expr, result_type)
+        else:
+            self._set_expected_type(expr, Type(TypeKind.NUMBER))
 
-            # Set expected types for operands to ensure native literals
-            self._set_expected_type(expr.left, left_type)
-            self._set_expected_type(expr.right, right_type)
+        # Set expected types for operands BEFORE checking (fixes order bug)
+        # This ensures recursive calls can use the expected type as a hint
+        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        self._set_expected_type(expr.left, left_type_hint)
+        self._set_expected_type(expr.right, right_type_hint)
 
+        # Get expected types for operands (use as hints when inferred is UNKNOWN)
+        left_expected = self._get_expected_type(expr.left)
+        right_expected = self._get_expected_type(expr.right)
+
+        # If both operands and result are numbers (or expected to be), use native operator
+        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
+        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
+
+        if left_is_number and right_is_number and result_is_number:
+            # Add parentheses for subtractions/divisions to preserve precedence
             left = self.generate(expr.left)
+            if isinstance(expr.left, (astnodes.SubOp, astnodes.AddOp, astnodes.FloatDivOp)):
+                left = f"({left})"
             right = self.generate(expr.right)
+            if isinstance(expr.right, (astnodes.SubOp, astnodes.AddOp, astnodes.FloatDivOp)):
+                right = f"({right})"
 
             self._clear_expected_type(expr.left)
             self._clear_expected_type(expr.right)
@@ -370,15 +417,29 @@ class ExprGenerator:
         right_type = self._get_inferred_expression_type(expr.right)
         result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
 
-        # If both operands and result are numbers, use native operator
-        if (left_type.kind == TypeKind.NUMBER and
-            right_type.kind == TypeKind.NUMBER and
-            (not result_type or result_type.kind == TypeKind.NUMBER)):
+        # Set expected type for this result expression (Fix 2)
+        if result_type and result_type.kind == TypeKind.NUMBER:
+            self._set_expected_type(expr, result_type)
+        else:
+            self._set_expected_type(expr, Type(TypeKind.NUMBER))
 
-            # Set expected types for operands to ensure native literals
-            self._set_expected_type(expr.left, left_type)
-            self._set_expected_type(expr.right, right_type)
+        # Set expected types for operands BEFORE checking (fixes order bug)
+        # This ensures recursive calls can use the expected type as a hint
+        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        self._set_expected_type(expr.left, left_type_hint)
+        self._set_expected_type(expr.right, right_type_hint)
 
+        # Get expected types for operands (use as hints when inferred is UNKNOWN)
+        left_expected = self._get_expected_type(expr.left)
+        right_expected = self._get_expected_type(expr.right)
+
+        # If both operands and result are numbers (or expected to be), use native operator
+        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
+        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
+
+        if left_is_number and right_is_number and result_is_number:
             left = self.generate(expr.left)
             right = self.generate(expr.right)
 
@@ -645,16 +706,10 @@ class ExprGenerator:
             table_name = expr.value.id
             table_info = self._get_table_info_for_symbol(table_name)
             
-            if table_info and table_info.is_array and table_info.value_type:
-                element_type = table_info.value_type
-                
-                if element_type.can_specialize():
-                    # Typed array access
-                    # Generate key with type hint to use native int
-                    self._set_expected_type(expr.idx, Type(TypeKind.NUMBER))
-                    key = self.generate(expr.idx)
-                    self._clear_expected_type(expr.idx)
-                    return f"({table})[{key}]"
+            if table_info and table_info.is_array:
+                # Array access - convert Lua's 1-based indexing to C++'s 0-based indexing
+                key = self.generate(expr.idx)
+                return f"({table})[{key} - 1]"
         
         # Default: luaValue indexing
         key = self.generate(expr.idx)
@@ -698,6 +753,11 @@ class ExprGenerator:
                         elements.append(self.generate(field.value))
                         self._clear_expected_type(field.value)
             
+            # Annotate the table expression with its concrete type
+            # This helps downstream code generation know what type this expression has
+            table_type = Type(TypeKind.TABLE)
+            ASTAnnotationStore.set_type(expr, table_type)
+            
             if elements:
                 return f"std::deque<{cpp_type}>{{{', '.join(elements)}}}"
             return f"std::deque<{cpp_type}>{{}}"
@@ -705,28 +765,14 @@ class ExprGenerator:
         # Fall back to luaValue table
         return "luaValue::new_table()"
 
-        table_info = self._get_table_info_from_context(expr)
-        is_array = table_info and table_info.is_array if table_info else self._is_array_table(expr)
-
-        if is_array:
-            element_type = self._infer_array_element_type(expr)
-            if element_type and element_type.can_specialize() and element_type.cpp_type() != "auto":
-                cpp_type = element_type.cpp_type()
-                elements = []
-                if hasattr(expr, 'fields') and expr.fields:
-                    for field in expr.fields:
-                        if hasattr(field, 'value'):
-                            elements.append(self.generate(field.value))
-                if elements:
-                    return f"std::deque<{cpp_type}>{{{', '.join(elements)}}}"
-                return f"std::deque<{cpp_type}>{{}}"
-            return "luaValue::new_table()"
-        else:
-            return "luaValue::new_table()"
-
     def _get_table_info_from_context(self, expr: astnodes.Node) -> Optional['TableTypeInfo']:
-        """Get table info from context (placeholder for future enhancement)"""
-        # For anonymous table constructors, we use heuristics
+        """Get table info from context or annotation"""
+        # First check if table_info is attached as annotation
+        table_info = ASTAnnotationStore.get_annotation(expr, "table_info")
+        if table_info:
+            return table_info
+        
+        # Fall back to heuristics for anonymous tables
         return None
     
     def _get_table_info_for_symbol(self, name: str) -> Optional['TableTypeInfo']:

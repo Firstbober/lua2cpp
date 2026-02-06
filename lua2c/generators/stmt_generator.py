@@ -8,6 +8,7 @@ from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind
 from lua2c.core.type_conversion import TypeConverter
 from lua2c.core.optimization_logger import OptimizationKind
+from lua2c.core.ast_annotation import ASTAnnotationStore
 from lua2c.generators.expr_generator import ExprGenerator
 try:
     from luaparser import astnodes
@@ -58,15 +59,48 @@ class StmtGenerator:
 
     def visit_Assign(self, stmt: astnodes.Assign) -> str:
         """Generate code for assignment statement"""
-        targets = [self.expr_gen.generate(t) for t in stmt.targets]
-        values = [self.expr_gen.generate(v) for v in stmt.values]
-
         code_lines = []
-        for i, target in enumerate(targets):
-            if i < len(values):
-                code_lines.append(f"{target} = {values[i]};")
-
+        for i, (target, value) in enumerate(zip(stmt.targets, stmt.values)):
+            # Track array usage for table type inference (Fix 4)
+            if isinstance(target, astnodes.Index) and isinstance(target.value, astnodes.Name):
+                table_name = target.value.id
+                type_inferencer = self.context.get_type_inferencer()
+                if type_inferencer:
+                    table_info = type_inferencer.get_table_info(table_name)
+                    if table_info:
+                        # Mark this as an array table
+                        table_info.is_array = True
+            
+            # Check if target is typed array assignment
+            target_code = self._handle_typed_array_assignment(target, value)
+            value_code = self.expr_gen.generate(value)
+            code_lines.append(f"{target_code} = {value_code};")
+        
         return "\n".join(code_lines)
+    
+    def _handle_typed_array_assignment(self, target: astnodes.Node, value: astnodes.Node) -> str:
+        """Handle assignment to typed array element, adjusting for 1-based indexing"""
+        if not isinstance(target, astnodes.Index):
+            return self.expr_gen.generate(target)
+        
+        # Check if table is a typed array
+        if isinstance(target.value, astnodes.Name):
+            table_name = target.value.id
+            type_inferencer = self.context.get_type_inferencer()
+            if not type_inferencer:
+                return self.expr_gen.generate(target)
+            
+            table_info = type_inferencer.get_table_info(table_name)
+            if not table_info or not table_info.is_array:
+                return self.expr_gen.generate(target)
+            
+            # It's a typed array - set expected type to generate native int key, then adjust for 1-based Lua to 0-based C++
+            self.expr_gen._set_expected_type(target.idx, Type(TypeKind.NUMBER))
+            idx_code = self.expr_gen.generate(target.idx)
+            self.expr_gen._clear_expected_type(target.idx)
+            return f"({self.expr_gen.generate(target.value)})[{idx_code} - 1]"
+        
+        return self.expr_gen.generate(target)
 
     def visit_LocalAssign(self, stmt: astnodes.LocalAssign) -> str:
         """Generate code for local variable assignment"""
@@ -79,61 +113,99 @@ class StmtGenerator:
                 target_names.append(var_name)
             else:
                 target_names.append(self.expr_gen.generate(target))
-
+        
         # Get type inferencer to access inferred types
         type_inferencer = self.context.get_type_inferencer()
-
-        # Infer types for each target
-        inferred_types = []
-        for target_name in target_names:
-            inferred_type = None
-
-            # First try to get from symbol
-            symbol = self.context.resolve_symbol(target_name)
-            if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
-                inferred_type = symbol.inferred_type
-
-            # If not found, try type inferencer
-            elif type_inferencer:
-                inferred_type = type_inferencer.get_type(target_name)
-
-            inferred_types.append(inferred_type)
-
-        # Generate values with type hints
-        values = []
-        for i, value in enumerate(stmt.values or []):
-            # Set expected type for the value expression
-            if i < len(inferred_types) and inferred_types[i]:
-                self.expr_gen._set_expected_type(value, inferred_types[i])
-
-            value_code = self.expr_gen.generate(value)
-            values.append(value_code)
-
-            # Clear expected type after generation
-            self.expr_gen._clear_expected_type(value)
-
-        # Generate code
+        
+        # Check if there are values
+        has_values = stmt.values and len(stmt.values) > 0
+        
+        # Generate assignments
         code_lines = []
-        for i, target_name in enumerate(target_names):
-            if i < len(values):
-                inferred_type = inferred_types[i] if i < len(inferred_types) else None
-
-                if inferred_type and inferred_type.can_specialize():
-                    cpp_type = TypeConverter.get_cpp_value_type(inferred_type)
-                    logger = self.context.get_optimization_logger()
-                    logger.log_optimization(
-                        kind=OptimizationKind.LOCAL_VAR,
-                        symbol=target_name,
-                        from_type="luaValue",
-                        to_type=cpp_type,
-                        reason=f"Type inference detected stable type: {inferred_type.kind}"
-                    )
-                    code_lines.append(f"{cpp_type} {target_name} = {values[i]};")
+        if has_values:
+            for i, (target, value) in enumerate(zip(stmt.targets, stmt.values)):
+                # Get inferred type for target
+                inferred_type = None
+                var_name = None
+                
+                if hasattr(target, 'id'):
+                    var_name = target.id
+                    # First try to get from symbol
+                    symbol = self.context.resolve_symbol(var_name)
+                    if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
+                        inferred_type = symbol.inferred_type
+                    
+                    # If not found, try type inferencer
+                    elif type_inferencer:
+                        inferred_type = type_inferencer.get_type(var_name)
+                
+                # Generate target code based on type
+                if hasattr(target, 'id'):
+                    if inferred_type and inferred_type.can_specialize():
+                        # Use concrete C++ type for any specialized type
+                        if inferred_type.kind == TypeKind.TABLE:
+                            # Check if it's a typed array
+                            table_info = None
+                            if type_inferencer:
+                                table_info = type_inferencer.get_table_info(var_name)
+                            
+                            if table_info and table_info.is_array and table_info.value_type:
+                                # Typed array - use concrete container type
+                                element_cpp_type = table_info.value_type.cpp_type()
+                                cpp_type = f"std::deque<{element_cpp_type}>"
+                                # Set expected type for value expression to generate native literals
+                                self.expr_gen._set_expected_type(value, table_info.value_type)
+                                # Attach table_info to the table expression for visit_Table to use
+                                if isinstance(value, astnodes.Table):
+                                    ASTAnnotationStore.set_annotation(value, "table_info", table_info)
+                                value_code = self.expr_gen.generate(value)
+                                self.expr_gen._clear_expected_type(value)
+                                code_lines.append(f"{cpp_type} {var_name} = {value_code};")
+                            elif table_info and table_info.is_array:
+                                # Array but unknown element type - use deque of luaValue
+                                value_code = self.expr_gen.generate(value)
+                                code_lines.append(f"std::deque<luaValue> {var_name} = {value_code};")
+                            else:
+                                # Regular table or unknown type - use luaValue
+                                value_code = self.expr_gen.generate(value)
+                                code_lines.append(f"luaValue {var_name} = {value_code};")
+                        else:
+                            # NUMBER, STRING, BOOLEAN - use concrete type
+                            cpp_type = inferred_type.cpp_type()
+                            # Set expected type for value expression to generate native literals
+                            self.expr_gen._set_expected_type(value, inferred_type)
+                            value_code = self.expr_gen.generate(value)
+                            self.expr_gen._clear_expected_type(value)
+                            code_lines.append(f"{cpp_type} {var_name} = {value_code};")
+                    else:
+                        # Unknown/variant type - but check if value is arithmetic (optimization hint)
+                        # If value is an arithmetic operation, assume NUMBER to generate native code
+                        is_arithmetic = isinstance(value, (astnodes.AddOp, astnodes.SubOp, 
+                                                         astnodes.MultOp, astnodes.FloatDivOp))
+                        if is_arithmetic:
+                            # Use NUMBER type for arithmetic with unknown operands
+                            cpp_type = "double"
+                            self.expr_gen._set_expected_type(value, Type(TypeKind.NUMBER))
+                            value_code = self.expr_gen.generate(value)
+                            self.expr_gen._clear_expected_type(value)
+                            code_lines.append(f"{cpp_type} {var_name} = {value_code};")
+                        else:
+                            # Fallback to luaValue
+                            value_code = self.expr_gen.generate(value)
+                            code_lines.append(f"luaValue {var_name} = {value_code};")
                 else:
-                    code_lines.append(f"luaValue {target_name} = {values[i]};")
-            else:
-                code_lines.append(f"luaValue {target_name} = luaValue();")
-
+                    # Complex target (not just Name) - use luaValue
+                    value_code = self.expr_gen.generate(value)
+                    code_lines.append(f"{self.expr_gen.generate(target)} = {value_code};")
+        else:
+            # No value - initialize with luaValue() (nil)
+            for target in stmt.targets:
+                if hasattr(target, 'id'):
+                    var_name = target.id
+                    code_lines.append(f"luaValue {var_name} = luaValue();")
+                else:
+                    code_lines.append(f"{self.expr_gen.generate(target)} = luaValue();")
+        
         return "\n".join(code_lines)
 
     def visit_Function(self, stmt: astnodes.Function) -> str:
