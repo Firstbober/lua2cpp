@@ -52,10 +52,10 @@ public:
     bool operator>(const luaValue& other) const;
     bool operator>=(const luaValue& other) const;
     
-    luaValue operator+(double other) const;
-    luaValue operator-(double other) const;
-    luaValue operator*(double other) const;
-    luaValue operator/(double other) const;
+    // luaValue operator+(double other) const;
+    // luaValue operator-(double other) const;
+    // luaValue operator*(double other) const;
+    // luaValue operator/(double other) const;
 
     luaValue& operator[](int index);
     luaValue& operator[](const std::string& key);

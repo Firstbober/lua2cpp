@@ -73,7 +73,24 @@ class StmtGenerator:
             
             # Check if target is typed array assignment
             target_code = self._handle_typed_array_assignment(target, value)
-            value_code = self.expr_gen.generate(value)
+            
+            # Set expected type for value if assigning to typed array element
+            element_type = None
+            if isinstance(target, astnodes.Index) and isinstance(target.value, astnodes.Name):
+                table_name = target.value.id
+                type_inferencer = self.context.get_type_inferencer()
+                if type_inferencer:
+                    table_info = type_inferencer.get_table_info(table_name)
+                    if table_info and table_info.is_array and table_info.value_type:
+                        element_type = table_info.value_type
+            
+            if element_type:
+                self.expr_gen._set_expected_type(value, element_type)
+                value_code = self.expr_gen.generate(value)
+                self.expr_gen._clear_expected_type(value)
+            else:
+                value_code = self.expr_gen.generate(value)
+            
             code_lines.append(f"{target_code} = {value_code};")
         
         return "\n".join(code_lines)
@@ -178,14 +195,24 @@ class StmtGenerator:
                             self.expr_gen._clear_expected_type(value)
                             code_lines.append(f"{cpp_type} {var_name} = {value_code};")
                     else:
-                        # Unknown/variant type - but check if value is arithmetic (optimization hint)
-                        # If value is an arithmetic operation, assume NUMBER to generate native code
-                        is_arithmetic = isinstance(value, (astnodes.AddOp, astnodes.SubOp, 
+                        # Unknown/variant type - check for typed array reads or arithmetic
+                        element_type_from_array = None
+                        
+                        # Check if value is reading from a typed array
+                        if isinstance(value, astnodes.Index) and isinstance(value.value, astnodes.Name):
+                            table_name = value.value.id
+                            if type_inferencer:
+                                table_info = type_inferencer.get_table_info(table_name)
+                                if table_info and table_info.is_array and table_info.value_type:
+                                    element_type_from_array = table_info.value_type
+                        
+                        # If value is arithmetic OR typed array read, use element type
+                        is_arithmetic = isinstance(value, (astnodes.AddOp, astnodes.SubOp,
                                                          astnodes.MultOp, astnodes.FloatDivOp))
-                        if is_arithmetic:
-                            # Use NUMBER type for arithmetic with unknown operands
+                        if is_arithmetic or element_type_from_array:
                             cpp_type = "double"
-                            self.expr_gen._set_expected_type(value, Type(TypeKind.NUMBER))
+                            use_type = element_type_from_array if element_type_from_array else Type(TypeKind.NUMBER)
+                            self.expr_gen._set_expected_type(value, use_type)
                             value_code = self.expr_gen.generate(value)
                             self.expr_gen._clear_expected_type(value)
                             code_lines.append(f"{cpp_type} {var_name} = {value_code};")
