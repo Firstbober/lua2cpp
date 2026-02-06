@@ -184,6 +184,9 @@ class CppEmitter:
                 if stmt_code:
                     statements.append(f"    {stmt_code}")
 
+        # Add return statement at end
+        statements.append("    return luaValue();")
+
         return statements
 
     def _generate_line_directive(self, line: int, file: str) -> str:

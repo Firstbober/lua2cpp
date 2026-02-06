@@ -30,12 +30,12 @@ class TestNamingScheme:
     def test_module_export_name_simple(self):
         """Test module export name generation"""
         result = NamingScheme.module_export_name("core/utils")
-        assert result == "_l2c__core__utils_export"
+        assert result == "_l2c__utils_export"
 
     def test_module_export_name_nested(self):
         """Test module export name with nested path"""
         result = NamingScheme.module_export_name("src/core/utils")
-        assert result == "_l2c__src__core__utils_export"
+        assert result == "_l2c__utils_export"
 
     def test_module_export_name_root(self):
         """Test module export name at root"""

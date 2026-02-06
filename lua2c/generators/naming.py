@@ -50,9 +50,12 @@ class NamingScheme:
             module_path: Module filesystem path relative to project root
 
         Returns:
-            C function name (e.g., "_l2c__src__core__utils_export")
+            C function name (e.g., "_l2c__utils_export")
         """
-        sanitized = NamingScheme.sanitize_path(module_path)
+        from pathlib import Path
+        # Extract just the filename without directory path or extension
+        filename = Path(module_path).name
+        sanitized = NamingScheme.sanitize_path(filename)
         return f"{NamingScheme.PREFIX}{sanitized}{NamingScheme.MODULE_EXPORT_SUFFIX}"
 
     @staticmethod

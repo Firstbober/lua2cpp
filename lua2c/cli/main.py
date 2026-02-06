@@ -45,7 +45,7 @@ def transpile_file(input_file: Path) -> str:
 def main() -> None:
     """Main CLI entry point"""
     if len(sys.argv) < 2:
-        print("Usage: python -m lua2c.cli.main <input_file.lua>")
+        print("Usage: python -m lua2c.cli.main <input_file.lua> [-o output_file.cpp]")
         sys.exit(1)
 
     input_file = Path(sys.argv[1])
@@ -54,9 +54,17 @@ def main() -> None:
         print(f"Error: File not found: {input_file}")
         sys.exit(1)
 
+    output_file = None
+    if len(sys.argv) >= 4 and sys.argv[2] == "-o":
+        output_file = Path(sys.argv[3])
+
     try:
         cpp_code = transpile_file(input_file)
-        print(cpp_code)
+        if output_file:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(cpp_code)
+        else:
+            print(cpp_code)
     except Exception as e:
         print(f"Error transpiling {input_file}: {e}")
         import traceback
