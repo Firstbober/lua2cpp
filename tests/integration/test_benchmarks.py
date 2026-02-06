@@ -39,8 +39,8 @@ class TestIntegration:
         input_file = Path("tests/cpp/lua/spectral-norm.lua")
         cpp_code = transpile_file(input_file)
 
-        # Check for for loops with correct pattern
-        assert "for (luaValue" in cpp_code
+        # Check for for loops - now optimized to use native double types
+        assert ("for (double" in cpp_code or "for (luaValue" in cpp_code)
         assert ".is_truthy()" in cpp_code
 
     def test_simple_file_transpiles(self):

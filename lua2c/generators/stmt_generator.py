@@ -254,18 +254,69 @@ class StmtGenerator:
         target_name = stmt.target.id if hasattr(stmt.target, 'id') else "i"
         self.context.enter_block()
         self.context.define_local(target_name)
-        start = self.expr_gen.generate(stmt.start)
-        stop = self.expr_gen.generate(stmt.stop)
+        
+        # Get inferred type for loop variable
+        # Try type inferencer first (for loop variables defined during generation)
+        target_type = None
+        type_inferencer = self.context.get_type_inferencer()
+        if type_inferencer:
+            target_type = type_inferencer.get_type(target_name)
+        
+        # Fall back to symbol's inferred_type
+        if not target_type:
+            symbol = self.context.resolve_symbol(target_name)
+            if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
+                target_type = symbol.inferred_type
+        
+        # Generate start/stop/step with type hints
+        if target_type and target_type.kind == TypeKind.NUMBER:
+            # Use type hints to generate native literals
+            self.expr_gen._set_expected_type(stmt.start, target_type)
+            start = self.expr_gen.generate(stmt.start)
+            self.expr_gen._clear_expected_type(stmt.start)
+            
+            self.expr_gen._set_expected_type(stmt.stop, target_type)
+            stop = self.expr_gen.generate(stmt.stop)
+            self.expr_gen._clear_expected_type(stmt.stop)
+        else:
+            start = self.expr_gen.generate(stmt.start)
+            stop = self.expr_gen.generate(stmt.stop)
+        
         if stmt.step:
             if isinstance(stmt.step, (int, float)):
-                step = f"luaValue({stmt.step})"
+                step_val = stmt.step
+                if target_type and target_type.kind == TypeKind.NUMBER:
+                    step = f"{step_val}" if step_val == 1 else f"{step_val}"
+                else:
+                    step = f"luaValue({step_val})"
             else:
-                step = self.expr_gen.generate(stmt.step)
+                if target_type and target_type.kind == TypeKind.NUMBER:
+                    self.expr_gen._set_expected_type(stmt.step, target_type)
+                    step = self.expr_gen.generate(stmt.step)
+                    self.expr_gen._clear_expected_type(stmt.step)
+                else:
+                    step = self.expr_gen.generate(stmt.step)
         else:
-            step = "luaValue(1)"
+            if target_type and target_type.kind == TypeKind.NUMBER:
+                step = "1"
+            else:
+                step = "luaValue(1)"
+        
         body = "\n    ".join([self.generate(s) for s in stmt.body.body])
         self.context.exit_block()
-        return f"for (luaValue {target_name} = {start}; {target_name} <= {stop}; {target_name} = {target_name} + {step}) {{\n    {body}\n}}"
+        
+        # Use native double type if inferred type is NUMBER
+        if target_type and target_type.kind == TypeKind.NUMBER:
+            if step == "1":
+                return f"for (double {target_name} = {start}; {target_name} <= {stop}; {target_name}++) {{\n    {body}\n}}"
+            else:
+                return f"for (double {target_name} = {start}; {target_name} <= {stop}; {target_name} += {step}) {{\n    {body}\n}}"
+        else:
+            # Fallback to luaValue for non-numeric loops
+            if step == "luaValue(1)":
+                return f"for (luaValue {target_name} = {start}; {target_name} <= {stop}; {target_name}++) {{\n    {body}\n}}"
+            else:
+                return f"for (luaValue {target_name} = {start}; {target_name} <= {stop}; {target_name} = {target_name} + {step}) {{\n    {body}\n}}"
 
     def visit_Return(self, stmt: astnodes.Return) -> str:
         """Generate code for return statement"""

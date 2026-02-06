@@ -60,10 +60,20 @@ class TypeInference:
             for s in stmt.body.body:
                 self._infer_statement(s)
         elif isinstance(stmt, astnodes.Fornum):
-            self._infer_expression(stmt.start)
+            # Infer types for start, stop, step
+            start_type = self._infer_expression(stmt.start)
             self._infer_expression(stmt.stop)
             if stmt.step and isinstance(stmt.step, astnodes.Node):
                 self._infer_expression(stmt.step)
+            
+            # Infer type for loop target variable
+            if hasattr(stmt.target, 'id'):
+                var_name = stmt.target.id
+                # Don't define the symbol here, just infer its type
+                # The symbol will be defined during code generation
+                self._merge_type(var_name, start_type)
+            
+            # Infer body statements
             for s in stmt.body.body:
                 self._infer_statement(s)
         elif isinstance(stmt, astnodes.Return):
