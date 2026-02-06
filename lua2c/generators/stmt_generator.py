@@ -168,10 +168,19 @@ class StmtGenerator:
     def visit_Fornum(self, stmt: astnodes.Fornum) -> str:
         """Generate code for numeric for loop"""
         target_name = stmt.target.id if hasattr(stmt.target, 'id') else "i"
+        self.context.enter_block()
+        self.context.define_local(target_name)
         start = self.expr_gen.generate(stmt.start)
         stop = self.expr_gen.generate(stmt.stop)
-        step = self.expr_gen.generate(stmt.step) if stmt.step else "luaValue(1)"
+        if stmt.step:
+            if isinstance(stmt.step, (int, float)):
+                step = f"luaValue({stmt.step})"
+            else:
+                step = self.expr_gen.generate(stmt.step)
+        else:
+            step = "luaValue(1)"
         body = "\n    ".join([self.generate(s) for s in stmt.body.body])
+        self.context.exit_block()
         return f"for (luaValue {target_name} = {start}; ({target_name} < {stop}).is_truthy(); {target_name} = {target_name} + {step}) {{\n    {body}\n}}"
 
     def visit_Return(self, stmt: astnodes.Return) -> str:

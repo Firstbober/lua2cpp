@@ -161,6 +161,8 @@ class CppEmitter:
             if isinstance(stmt, astnodes.LocalFunction):
                 func_code = self.stmt_gen.generate(stmt)
                 functions.append(func_code)
+                func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+                self.context.define_local(func_name)
 
         return functions
 

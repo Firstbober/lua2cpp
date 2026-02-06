@@ -254,6 +254,15 @@ class ExprGenerator:
         """Generate code for function call"""
         func = self.generate(expr.func)
         args = ", ".join([self.generate(arg) for arg in expr.args])
+        
+        # Check if this is a local function call (needs state parameter)
+        if isinstance(expr.func, astnodes.Name):
+            symbol = self.context.resolve_symbol(expr.func.id)
+            if symbol and not symbol.is_global:
+                # Local function: func(state, arg1, arg2, ...)
+                return f"{func}(state, {args})"
+        
+        # Global/library function: func({arg1, arg2, ...})
         return f"({func})({{{args}}})"
 
     def visit_Invoke(self, expr: astnodes.Invoke) -> str:

@@ -238,3 +238,33 @@ class TestExprGenerator:
         expr = astnodes.AnonymousFunction(args=[], body=body)
         result = generator.generate(expr)
         assert "new_closure" in result
+
+    def test_generate_local_function_call(self, generator, context):
+        """Test generating local function call with state parameter"""
+        # Define a local function symbol
+        context.symbol_table.add_function("add", is_global=False)
+        
+        # Generate call to local function
+        func = astnodes.Name(identifier="add")
+        args = [astnodes.Number(n=5), astnodes.Number(n=3)]
+        expr = astnodes.Call(func=func, args=args)
+        result = generator.generate(expr)
+        
+        # Local functions should be called with state parameter
+        assert "add(state," in result
+        assert "luaValue(5)" in result
+        assert "luaValue(3)" in result
+
+    def test_generate_global_function_call(self, generator):
+        """Test generating global function call with argument list"""
+        # Global function (not defined as local symbol)
+        func = astnodes.Name(identifier="print")
+        args = [astnodes.Number(n=42)]
+        expr = astnodes.Call(func=func, args=args)
+        result = generator.generate(expr)
+        
+        # Global functions should be called with luaValue operator()
+        # Since print is not a local symbol, it resolves to state->get_global("print")
+        assert "state->get_global" in result or "(" in result
+        assert "luaValue(42)" in result
+        assert "{luaValue(42)})" in result or "{luaValue(42)}" in result
