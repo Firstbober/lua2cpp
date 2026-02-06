@@ -28,11 +28,11 @@ class TestIntegration:
         input_file = Path("tests/cpp/lua/spectral-norm.lua")
         cpp_code = transpile_file(input_file)
 
-        # Check for expected function definitions
-        assert "luaValue A(luaState" in cpp_code
-        assert "luaValue Av(luaState" in cpp_code
-        assert "luaValue Atv(luaState" in cpp_code
-        assert "luaValue AtAv(luaState" in cpp_code
+        # Check for expected function definitions (now using auto& parameters)
+        assert "auto A(luaState" in cpp_code
+        assert "auto Av(luaState" in cpp_code
+        assert "auto Atv(luaState" in cpp_code
+        assert "auto AtAv(luaState" in cpp_code
 
     def test_spectral_norm_has_loops(self):
         """Test that spectral-norm.lua generates for loops correctly"""
@@ -51,7 +51,7 @@ class TestIntegration:
 
         cpp_code = transpile_file(input_file)
         assert cpp_code is not None
-        assert "luaValue add" in cpp_code
+        assert "auto add" in cpp_code
         assert "print" in cpp_code
 
     def test_spectral_norm_string_pool(self):

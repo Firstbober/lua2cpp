@@ -6,6 +6,8 @@ Handles all expression types: literals, variables, operations, calls, etc.
 
 from typing import Optional
 from lua2c.core.context import TranslationContext
+from lua2c.core.type_system import Type, TypeKind
+from lua2c.core.type_conversion import TypeConverter
 from lua2c.generators.naming import NamingScheme
 try:
     from luaparser import astnodes
@@ -50,6 +52,90 @@ class ExprGenerator:
             context: Translation context
         """
         self.context = context
+        self._type_inferencer = None
+        self._expected_types = {}
+
+    def set_type_inferencer(self, type_inferencer) -> None:
+        """Set the type inferencer for expression type queries
+
+        Args:
+            type_inferencer: TypeInference instance
+        """
+        self._type_inferencer = type_inferencer
+
+    def _get_inferred_expression_type(self, expr: astnodes.Node) -> Type:
+        """Get inferred type for an expression
+
+        Args:
+            expr: Expression node
+
+        Returns:
+            Inferred type
+        """
+        if not self._type_inferencer:
+            return Type(TypeKind.UNKNOWN)
+
+        # Try to get from stored expression types
+        if hasattr(expr, '_l2c_inferred_type'):
+            return expr._l2c_inferred_type
+
+        # Otherwise infer it now
+        result_type = self._type_inferencer._get_expression_type(expr)
+        # Cache the result on the node
+        expr._l2c_inferred_type = result_type
+        return result_type
+
+    def _set_expected_type(self, expr: astnodes.Node, type_hint: Optional[Type]) -> None:
+        """Set expected type for an expression
+
+        Args:
+            expr: Expression node
+            type_hint: Expected type
+        """
+        if type_hint:
+            expr_id = id(expr)
+            self._expected_types[expr_id] = type_hint
+
+    def _get_expected_type(self, expr: astnodes.Node) -> Optional[Type]:
+        """Get expected type for an expression
+
+        Args:
+            expr: Expression node
+
+        Returns:
+            Expected type or None
+        """
+        expr_id = id(expr)
+        return self._expected_types.get(expr_id)
+
+    def _clear_expected_type(self, expr: astnodes.Node) -> None:
+        """Clear expected type for an expression
+
+        Args:
+            expr: Expression node
+        """
+        expr_id = id(expr)
+        self._expected_types.pop(expr_id, None)
+
+    def _get_symbol_type(self, name: str) -> Optional[Type]:
+        """Get inferred type for a symbol"""
+        symbol = self.context.resolve_symbol(name)
+        if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
+            return symbol.inferred_type
+        return None
+
+    def _get_table_info(self, name: str):
+        """Get table info for a symbol"""
+        symbol = self.context.resolve_symbol(name)
+        if symbol and hasattr(symbol, 'table_info') and symbol.table_info:
+            return symbol.table_info
+        return None
+
+    def _should_use_lua_value(self, type_hint: Optional[Type]) -> bool:
+        """Check if we should use luaValue for this type"""
+        if type_hint is None:
+            return True  # Default to luaValue for safety
+        return type_hint.kind == TypeKind.UNKNOWN or type_hint.kind == TypeKind.VARIANT
 
     def generate(self, expr: astnodes.Node) -> str:
         """Generate C++ code for an expression
@@ -109,6 +195,11 @@ class ExprGenerator:
             C++ code for number literal
         """
         value = expr.n
+        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
+
+        if not self._should_use_lua_value(type_hint) and type_hint:
+            return f"{value}"
+
         return f"luaValue({value})"
 
     def visit_String(self, expr: astnodes.String) -> str:
@@ -122,18 +213,12 @@ class ExprGenerator:
         """
         string_value = expr.s.decode() if isinstance(expr.s, bytes) else expr.s
         index = self.context.add_string_literal(string_value)
+        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
+
+        if not self._should_use_lua_value(type_hint) and type_hint:
+            return f'std::string(string_pool[{index}])'
+
         return f'luaValue(string_pool[{index}])'
-
-    def visit_Nil(self, expr: astnodes.Nil) -> str:
-        """Generate code for nil
-
-        Args:
-            expr: Nil node
-
-        Returns:
-            C++ code for nil
-        """
-        return "luaValue()"
 
     def visit_TrueExpr(self, expr: astnodes.TrueExpr) -> str:
         """Generate code for true
@@ -144,6 +229,11 @@ class ExprGenerator:
         Returns:
             C++ code for true
         """
+        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
+
+        if not self._should_use_lua_value(type_hint) and type_hint:
+            return "true"
+
         return "luaValue(true)"
 
     def visit_FalseExpr(self, expr: astnodes.FalseExpr) -> str:
@@ -155,7 +245,27 @@ class ExprGenerator:
         Returns:
             C++ code for false
         """
+        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
+
+        if not self._should_use_lua_value(type_hint) and type_hint:
+            return "false"
+
         return "luaValue(false)"
+
+    def _get_symbol_type_from_context(self, expr: astnodes.Node) -> Optional[Type]:
+        """Get type hint from surrounding context"""
+        return None
+
+    def visit_Nil(self, expr: astnodes.Nil) -> str:
+        """Generate code for nil
+
+        Args:
+            expr: Nil node
+
+        Returns:
+            C++ code for nil
+        """
+        return "luaValue()"
 
     def visit_Name(self, expr: astnodes.Name) -> str:
         """Generate code for variable reference
@@ -179,24 +289,112 @@ class ExprGenerator:
 
     def visit_AddOp(self, expr: astnodes.AddOp) -> str:
         """Generate code for addition operation"""
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
+
+        # If both operands and result are numbers, use native operator
+        if (left_type.kind == TypeKind.NUMBER and
+            right_type.kind == TypeKind.NUMBER and
+            (not result_type or result_type.kind == TypeKind.NUMBER)):
+
+            # Set expected types for operands to ensure native literals
+            self._set_expected_type(expr.left, left_type)
+            self._set_expected_type(expr.right, right_type)
+
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+
+            return f"{left} + {right}"
+
+        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, 'AddOp')
         right = self.generate_with_parentheses(expr.right, 'AddOp')
         return f"{left} + {right}"
 
     def visit_SubOp(self, expr: astnodes.SubOp) -> str:
         """Generate code for subtraction operation"""
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
+
+        # If both operands and result are numbers, use native operator
+        if (left_type.kind == TypeKind.NUMBER and
+            right_type.kind == TypeKind.NUMBER and
+            (not result_type or result_type.kind == TypeKind.NUMBER)):
+
+            # Set expected types for operands to ensure native literals
+            self._set_expected_type(expr.left, left_type)
+            self._set_expected_type(expr.right, right_type)
+
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+
+            return f"{left} - {right}"
+
+        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, 'SubOp')
         right = self.generate_with_parentheses(expr.right, 'SubOp')
         return f"{left} - {right}"
 
     def visit_MultOp(self, expr: astnodes.MultOp) -> str:
         """Generate code for multiplication operation"""
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
+
+        # If both operands and result are numbers, use native operator
+        if (left_type.kind == TypeKind.NUMBER and
+            right_type.kind == TypeKind.NUMBER and
+            (not result_type or result_type.kind == TypeKind.NUMBER)):
+
+            # Set expected types for operands to ensure native literals
+            self._set_expected_type(expr.left, left_type)
+            self._set_expected_type(expr.right, right_type)
+
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+
+            return f"{left} * {right}"
+
+        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, 'MultOp')
         right = self.generate_with_parentheses(expr.right, 'MultOp')
         return f"{left} * {right}"
 
     def visit_FloatDivOp(self, expr: astnodes.FloatDivOp) -> str:
         """Generate code for division operation"""
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
+
+        # If both operands and result are numbers, use native operator
+        if (left_type.kind == TypeKind.NUMBER and
+            right_type.kind == TypeKind.NUMBER and
+            (not result_type or result_type.kind == TypeKind.NUMBER)):
+
+            # Set expected types for operands to ensure native literals
+            self._set_expected_type(expr.left, left_type)
+            self._set_expected_type(expr.right, right_type)
+
+            left = self.generate(expr.left)
+            right = self.generate(expr.right)
+
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+
+            return f"{left} / {right}"
+
+        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, 'FloatDivOp')
         right = self.generate_with_parentheses(expr.right, 'FloatDivOp')
         return f"{left} / {right}"
@@ -319,18 +517,48 @@ class ExprGenerator:
     def visit_Call(self, expr: astnodes.Call) -> str:
         """Generate code for function call"""
         func = self.generate(expr.func)
-        args = ", ".join([self.generate(arg) for arg in expr.args])
-        
+
         # Check if this is a local function call (needs state parameter)
         if isinstance(expr.func, astnodes.Name):
             symbol = self.context.resolve_symbol(expr.func.id)
             if symbol and not symbol.is_global:
                 # Local function: func(state, arg1, arg2, ...)
-                return f"{func}(state, {args})"
-        
+                # Handle temporaries for non-const lvalue reference binding
+                wrapped_args = []
+                temp_decls = []
+                temp_counter = [0]
+
+                for arg in expr.args:
+                    arg_code = self.generate(arg)
+                    if self._is_temporary_expression(arg):
+                        temp_name = f"_l2c_tmp_arg_{temp_counter[0]}"
+                        temp_counter[0] += 1
+                        temp_decls.append(f"auto {temp_name} = {arg_code}")
+                        wrapped_args.append(temp_name)
+                    else:
+                        wrapped_args.append(arg_code)
+
+                args_str = ", ".join(wrapped_args)
+                if temp_decls:
+                    # Need to wrap in block scope for temporaries
+                    temps = "; ".join(temp_decls)
+                    return f"[&] {{ {temps}; return {func}(state, {args_str}); }}()"
+                else:
+                    return f"{func}(state, {args_str})"
+
         # Global/library function: func({arg1, arg2, ...})
-        args = ", ".join([self.generate(arg) for arg in expr.args])
-        return f"({func})({{{args}}})"
+        # Need to wrap arguments in luaValue
+        args = []
+        for arg in expr.args:
+            arg_code = self.generate(arg)
+            type_hint = self._get_symbol_type_from_context(arg)
+            if not self._should_use_lua_value(type_hint):
+                # Need to convert to luaValue for library functions
+                args.append(f"luaValue({arg_code})")
+            else:
+                args.append(arg_code)
+        args_str = ", ".join(args)
+        return f"({func})({{{args_str}}})"
 
     def visit_Invoke(self, expr: astnodes.Invoke) -> str:
         """Generate code for method invocation (obj:method(args))
@@ -419,6 +647,9 @@ class ExprGenerator:
 
         table = self.generate(expr.value)
         key = self.generate(expr.idx)
+
+        # Table indexing always returns luaValue for now
+        # This ensures compatibility with luaValue operators
         return f"({table})[{key}]"
 
     def visit_Field(self, expr: astnodes.Field) -> str:
@@ -434,6 +665,64 @@ class ExprGenerator:
     def visit_Table(self, expr: astnodes.Table) -> str:
         """Generate code for table constructor"""
         return "luaValue::new_table()"
+
+        table_info = self._get_table_info_from_context(expr)
+        is_array = table_info and table_info.is_array if table_info else self._is_array_table(expr)
+
+        if is_array:
+            element_type = self._infer_array_element_type(expr)
+            if element_type and element_type.can_specialize() and element_type.cpp_type() != "auto":
+                cpp_type = element_type.cpp_type()
+                elements = []
+                if hasattr(expr, 'fields') and expr.fields:
+                    for field in expr.fields:
+                        if hasattr(field, 'value'):
+                            elements.append(self.generate(field.value))
+                if elements:
+                    return f"std::deque<{cpp_type}>{{{', '.join(elements)}}}"
+                return f"std::deque<{cpp_type}>{{}}"
+            return "luaValue::new_table()"
+        else:
+            return "luaValue::new_table()"
+
+    def _get_table_info_from_context(self, expr: astnodes.Node):
+        """Get table info from context (placeholder for future enhancement)"""
+        return None
+
+    def _is_array_table(self, expr: astnodes.Table) -> bool:
+        """Check if table is an array based on heuristics"""
+        if not hasattr(expr, 'fields') or not expr.fields:
+            return True
+
+        has_explicit_keys = any(hasattr(f, 'key') and f.key for f in expr.fields)
+        if has_explicit_keys:
+            return False
+
+        return True
+
+    def _infer_array_element_type(self, expr: astnodes.Table) -> Optional[Type]:
+        """Infer element type for array table"""
+        if not hasattr(expr, 'fields') or not expr.fields:
+            return None
+
+        seen_kinds = set()
+        for field in expr.fields:
+            if hasattr(field, 'value'):
+                if isinstance(field.value, astnodes.Number):
+                    seen_kinds.add(TypeKind.NUMBER)
+                elif isinstance(field.value, astnodes.String):
+                    seen_kinds.add(TypeKind.STRING)
+                elif isinstance(field.value, (astnodes.TrueExpr, astnodes.FalseExpr)):
+                    seen_kinds.add(TypeKind.BOOLEAN)
+                elif isinstance(field.value, astnodes.Nil):
+                    seen_kinds.add(TypeKind.NIL)
+
+        if len(seen_kinds) == 1:
+            return Type(next(iter(seen_kinds)))
+        elif len(seen_kinds) > 1:
+            return Type(TypeKind.VARIANT, subtypes=[Type(k) for k in seen_kinds])
+
+        return None
 
     def visit_AnonymousFunction(self, expr: astnodes.AnonymousFunction) -> str:
         """Generate code for anonymous function"""

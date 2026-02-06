@@ -7,7 +7,10 @@ Manages variable scoping following Lua's scoping rules:
 - Global variables are implicitly in the outermost scope
 """
 
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lua2c.core.type_system import Type, TableTypeInfo
 
 
 class Symbol:
@@ -20,6 +23,8 @@ class Symbol:
         is_global: bool = False,
         is_function: bool = False,
         param_index: int = -1,
+        inferred_type: Optional['Type'] = None,
+        table_info: Optional['TableTypeInfo'] = None,
     ) -> None:
         """Initialize symbol
 
@@ -29,17 +34,22 @@ class Symbol:
             is_global: True if this is a global variable
             is_function: True if this is a function definition
             param_index: Parameter index (if function parameter)
+            inferred_type: Inferred type information
+            table_info: Table type information (for tables)
         """
         self.name = name
         self.scope_id = scope_id
         self.is_global = is_global
         self.is_function = is_function
         self.param_index = param_index
+        self.inferred_type = inferred_type
+        self.table_info = table_info
 
     def __repr__(self) -> str:
+        type_str = f", type={self.inferred_type.kind.name}" if self.inferred_type else ""
         return (
             f"Symbol(name={self.name!r}, scope_id={self.scope_id}, "
-            f"is_global={self.is_global}, is_function={self.is_function})"
+            f"is_global={self.is_global}, is_function={self.is_function}{type_str})"
         )
 
 

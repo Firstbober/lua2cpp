@@ -37,7 +37,7 @@ end
 
         c_code = transpile_file(lua_file)
 
-        assert "luaValue add" in c_code
+        assert "auto add" in c_code
         assert "return" in c_code
 
     def test_transpile_return_statement(self, tmp_path):
@@ -48,7 +48,7 @@ end
         c_code = transpile_file(lua_file)
 
         assert "return" in c_code
-        assert "1" in c_code  # Return count
+        assert "42" in c_code
 
     def test_missing_file_raises_error(self, tmp_path):
         """Test that missing file raises error"""

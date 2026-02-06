@@ -88,5 +88,8 @@ class DeclGenerator:
             "#include \"lua_table.hpp\"",
             "#include <vector>",
             "#include <string>",
+            "#include <deque>",
+            "#include <unordered_map>",
+            "#include <variant>",
             "",
         ]

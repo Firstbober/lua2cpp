@@ -5,6 +5,9 @@ Handles all statement types: assignment, control flow, loops, etc.
 """
 
 from lua2c.core.context import TranslationContext
+from lua2c.core.type_system import Type, TypeKind
+from lua2c.core.type_conversion import TypeConverter
+from lua2c.core.optimization_logger import OptimizationKind
 from lua2c.generators.expr_generator import ExprGenerator
 try:
     from luaparser import astnodes
@@ -75,17 +78,59 @@ class StmtGenerator:
                 self.context.define_local(var_name)
                 target_names.append(var_name)
             else:
-                # For complex targets (not just Name), need different handling
                 target_names.append(self.expr_gen.generate(target))
 
-        # Now generate values
-        values = [self.expr_gen.generate(v) for v in (stmt.values or [])]
+        # Get type inferencer to access inferred types
+        type_inferencer = self.context.get_type_inferencer()
+
+        # Infer types for each target
+        inferred_types = []
+        for target_name in target_names:
+            inferred_type = None
+
+            # First try to get from symbol
+            symbol = self.context.resolve_symbol(target_name)
+            if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
+                inferred_type = symbol.inferred_type
+
+            # If not found, try type inferencer
+            elif type_inferencer:
+                inferred_type = type_inferencer.get_type(target_name)
+
+            inferred_types.append(inferred_type)
+
+        # Generate values with type hints
+        values = []
+        for i, value in enumerate(stmt.values or []):
+            # Set expected type for the value expression
+            if i < len(inferred_types) and inferred_types[i]:
+                self.expr_gen._set_expected_type(value, inferred_types[i])
+
+            value_code = self.expr_gen.generate(value)
+            values.append(value_code)
+
+            # Clear expected type after generation
+            self.expr_gen._clear_expected_type(value)
 
         # Generate code
         code_lines = []
         for i, target_name in enumerate(target_names):
             if i < len(values):
-                code_lines.append(f"luaValue {target_name} = {values[i]};")
+                inferred_type = inferred_types[i] if i < len(inferred_types) else None
+
+                if inferred_type and inferred_type.can_specialize():
+                    cpp_type = TypeConverter.get_cpp_value_type(inferred_type)
+                    logger = self.context.get_optimization_logger()
+                    logger.log_optimization(
+                        kind=OptimizationKind.LOCAL_VAR,
+                        symbol=target_name,
+                        from_type="luaValue",
+                        to_type=cpp_type,
+                        reason=f"Type inference detected stable type: {inferred_type.kind}"
+                    )
+                    code_lines.append(f"{cpp_type} {target_name} = {values[i]};")
+                else:
+                    code_lines.append(f"luaValue {target_name} = {values[i]};")
             else:
                 code_lines.append(f"luaValue {target_name} = luaValue();")
 
@@ -117,10 +162,9 @@ class StmtGenerator:
         body_code = "\n".join(body_statements)
         self.context.exit_function()
 
-        # Generate C function signature with parameters
-        # Use luaValue& for reference semantics to match Lua's pass-by-reference for tables/functions
-        params_str = ", ".join([f"luaValue& {p}" for p in param_names])
-        return f"luaValue {func_name}(luaState* state{', ' + params_str if params_str else ''}) {{\n{body_code}\n}}"
+        # Use auto for all parameters
+        params_str = ", ".join([f"auto& {p}" for p in param_names])
+        return f"auto {func_name}(luaState* state{', ' + params_str if params_str else ''}) {{\n    {body_code}\n}}"
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
         """Generate code for function call statement"""

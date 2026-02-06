@@ -44,18 +44,53 @@ class CppEmitter:
         Returns:
             Complete C++ code as string
         """
+        from lua2c.analyzers.type_inference import TypeInference
+
         lines = []
 
-        # First pass: collect all strings into pool
+        # Phase 1: Type inference
+        type_inferencer = TypeInference(self.context)
+        type_inferencer.infer_chunk(lua_ast)
+
+        # Store inferred types in symbol table for code generation access
+        for symbol_name, inferred_type in type_inferencer.inferred_types.items():
+            symbol = self.context.resolve_symbol(symbol_name)
+            if symbol:
+                symbol.inferred_type = inferred_type
+
+        for symbol_name, table_info in type_inferencer.table_info.items():
+            symbol = self.context.resolve_symbol(symbol_name)
+            if symbol:
+                symbol.table_info = table_info
+
+        # Set type inferencer for expression generator and context
+        self.expr_gen.set_type_inferencer(type_inferencer)
+        self.context.set_type_inferencer(type_inferencer)
+
+        # Clear expr_types to force re-inference during code generation
+        # This ensures we use the correct AST nodes
+        type_inferencer.expr_types.clear()
+
+        # Phase 2: String collection (existing)
         self._collect_strings(lua_ast)
 
         # Header comment
         lines.append(f"// Auto-generated from {input_file}")
-        lines.append("// Lua2C Transpiler")
+        lines.append("// Lua2C Transpiler with Type Optimization")
         lines.append("")
 
-        # Includes
-        lines.extend(self.decl_gen.generate_includes())
+        # Includes (add deque and unordered_map)
+        lines.extend([
+            "#include \"lua_value.hpp\"",
+            "#include \"lua_state.hpp\"",
+            "#include \"lua_table.hpp\"",
+            "#include <vector>",
+            "#include <string>",
+            "#include <deque>",
+            "#include <unordered_map>",
+            "#include <variant>",
+            "",
+        ])
 
         # String pool
         lines.append("// String pool")

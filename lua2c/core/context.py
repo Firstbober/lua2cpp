@@ -6,6 +6,7 @@ Maintains state during transpilation including:
 - String pool
 - File and module information
 - Generated code fragments
+- Optimization logging
 """
 
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Optional
 from lua2c.core.scope import ScopeManager
 from lua2c.core.symbol_table import SymbolTable
 from lua2c.generators.string_pool import StringPool
+from lua2c.core.optimization_logger import OptimizationLogger
 
 
 class TranslationContext:
@@ -31,6 +33,8 @@ class TranslationContext:
         self.scope_manager = ScopeManager()
         self.symbol_table = SymbolTable(self.scope_manager)
         self.string_pool = StringPool()
+        self.optimization_logger = OptimizationLogger()
+        self._type_inferencer = None
 
         self._current_function_depth = 0
 
@@ -183,3 +187,27 @@ class TranslationContext:
             Symbol table instance
         """
         return self.symbol_table
+
+    def get_optimization_logger(self) -> OptimizationLogger:
+        """Get optimization logger
+
+        Returns:
+            Optimization logger instance
+        """
+        return self.optimization_logger
+
+    def set_type_inferencer(self, type_inferencer) -> None:
+        """Set type inferencer for context
+
+        Args:
+            type_inferencer: TypeInference instance
+        """
+        self._type_inferencer = type_inferencer
+
+    def get_type_inferencer(self):
+        """Get type inferencer from context
+
+        Returns:
+            TypeInference instance or None
+        """
+        return self._type_inferencer
