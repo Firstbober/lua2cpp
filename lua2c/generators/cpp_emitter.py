@@ -35,7 +35,13 @@ class CppEmitter:
         self.naming = NamingScheme()
 
     def generate_file(self, lua_ast: astnodes.Chunk, input_file: Path) -> str:
-        """Generate complete C++ file
+        """Generate complete C++ file with multi-pass type inference
+
+        Performs four-phase type analysis:
+        1. Function signature collection
+        2. Local type inference
+        3. Inter-procedural type propagation
+        4. Type validation
 
         Args:
             lua_ast: Lua AST chunk
@@ -45,12 +51,25 @@ class CppEmitter:
             Complete C++ code as string
         """
         from lua2c.analyzers.type_inference import TypeInference
+        from lua2c.analyzers.type_validator import TypeValidator, ValidationSeverity
 
         lines = []
 
-        # Phase 1: Type inference
-        type_inferencer = TypeInference(self.context)
+        # Phase 1: Multi-pass type inference
+        type_inferencer = TypeInference(self.context, verbose=False)
         type_inferencer.infer_chunk(lua_ast)
+
+        # Phase 2: Type validation
+        validator = TypeValidator(type_inferencer)
+        issues = validator.validate_all()
+
+        # Print validation warnings (if any)
+        if validator.has_warnings():
+            print("\n" + validator.print_issues(filter_severity=ValidationSeverity.WARNING))
+
+        # Print propagation summary (if any warnings)
+        if type_inferencer.propagation_logger.warnings:
+            print("\n" + type_inferencer.propagation_logger.print_summary())
 
         # Store inferred types in symbol table for code generation access
         for symbol_name, inferred_type in type_inferencer.inferred_types.items():

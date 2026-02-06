@@ -2,6 +2,18 @@
 
 Walks AST and infers types for all variables and expressions.
 Tracks type usage to determine if types are stable or dynamic.
+
+Enhanced with multi-pass inter-procedural type propagation:
+- Pass 1: Collect function signatures
+- Pass 2: Local type inference within functions
+- Pass 3: Iterative inter-procedural type propagation
+- Pass 4: Validation and finalization
+
+Design Principles:
+- Bidirectional propagation (arguments ↔ parameters)
+- VARIANT types for conflicting type information
+- Iterative fixed-point algorithm
+- Comprehensive call graph tracking
 """
 
 from typing import Dict, Set, Optional, List
@@ -9,21 +21,322 @@ from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind, TableTypeInfo
 from lua2c.core.ast_annotation import ASTAnnotationStore
 from luaparser import astnodes
+from lua2c.analyzers.function_registry import FunctionSignatureRegistry
+from lua2c.analyzers.propagation_logger import (
+    PropagationLogger, PropagationDirection
+)
 
 
 class TypeInference:
-    """Infers types from Lua AST"""
+    """Infers types from Lua AST with inter-procedural support
 
-    def __init__(self, context: TranslationContext) -> None:
+    Enhanced type inference that performs multi-pass analysis to
+    propagate type information across function boundaries.
+    """
+
+    def __init__(self, context: TranslationContext, verbose: bool = False) -> None:
+        """Initialize type inferencer
+
+        Args:
+            context: Translation context
+            verbose: Enable verbose logging (default: warnings only)
+        """
         self.context = context
         self.inferred_types: Dict[str, Type] = {}
         self.table_info: Dict[str, TableTypeInfo] = {}
         self.seen_types: Dict[str, Set[TypeKind]] = {}
 
+        # Inter-procedural analysis support
+        self.func_registry = FunctionSignatureRegistry()
+        self.propagation_logger = PropagationLogger(verbose=verbose)
+        self._current_function: Optional[str] = None
+        self._max_iterations = 10
+
     def infer_chunk(self, chunk: astnodes.Chunk) -> None:
-        """Perform type inference on entire chunk"""
+        """Perform multi-pass type inference on entire chunk
+
+        Executes four passes:
+        1. Collect all function signatures
+        2. Infer local types within functions
+        3. Iteratively propagate types inter-procedurally
+        4. Validate and finalize types
+
+        Args:
+            chunk: AST chunk to analyze
+        """
+        # Pass 1: Collect function signatures
+        self._collect_function_signatures(chunk)
+
+        # Pass 2: Local type inference
+        self._infer_local_types(chunk)
+
+        # Pass 3: Inter-procedural propagation (iterative)
+        self._propagate_types_interprocedurally()
+
+        # Pass 4: Validate and finalize
+        self._validate_and_finalize()
+
+    def _collect_function_signatures(self, chunk: astnodes.Chunk) -> None:
+        """Pass 1: Collect all function definitions
+
+        Registers all local functions with their parameter signatures
+        before any type inference occurs. This provides the
+        foundation for inter-procedural analysis.
+
+        Args:
+            chunk: AST chunk to analyze
+        """
+        for stmt in chunk.body.body:
+            if isinstance(stmt, astnodes.LocalFunction):
+                func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+                param_names = [p.id for p in stmt.args if hasattr(p, 'id')]
+                self.func_registry.register_function(
+                    func_name, param_names, is_local=True
+                )
+
+    def _infer_local_types(self, chunk: astnodes.Chunk) -> None:
+        """Pass 2: Infer types within function bodies
+
+        Performs local type inference for all statements,
+        tracking parameter usage patterns within each function.
+
+        Args:
+            chunk: AST chunk to analyze
+        """
         for stmt in chunk.body.body:
             self._infer_statement(stmt)
+
+        # Track parameter array usage in each function
+        for stmt in chunk.body.body:
+            if isinstance(stmt, astnodes.LocalFunction):
+                func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+                for body_stmt in stmt.body.body:
+                    self._track_param_array_usage(
+                        stmt.args, body_stmt, func_name
+                    )
+
+    def _propagate_types_interprocedurally(self) -> None:
+        """Pass 3: Iterative type propagation until fixed point
+
+        Performs bidirectional type propagation:
+        - Arguments → Parameters: Types from call sites propagate to function params
+        - Parameters → Arguments: Parameter types propagate back to arguments
+
+        Uses iterative fixed-point algorithm to handle cyclic dependencies.
+        Stops when no changes occur or max iterations reached.
+
+        Conflict Resolution:
+        - Conflicting types are merged into VARIANT types
+        - Most specific types are preferred (NUMBER > TABLE > UNKNOWN)
+        """
+        changed = True
+        iteration = 0
+
+        while changed and iteration < self._max_iterations:
+            changed = False
+            iteration += 1
+            self.propagation_logger.start_iteration(iteration)
+
+            # Direction 1: Arguments → Parameters
+            changed |= self._propagate_args_to_params()
+
+            # Direction 2: Parameters → Arguments
+            changed |= self._propagate_params_to_args()
+
+            if not changed and iteration < self._max_iterations:
+                # Convergence achieved
+                break
+
+        if iteration == self._max_iterations and changed:
+            self.propagation_logger.log_warning(
+                f"Type propagation did not converge after {self._max_iterations} iterations. "
+                "This may indicate circular dependencies or complex type relationships."
+            )
+
+    def _propagate_args_to_params(self) -> bool:
+        """Propagate types from arguments to parameters
+
+        For each function call, examines the types of arguments
+        and propagates them to the corresponding parameters.
+        This enables type inference even when parameters are only
+        used as arrays without explicit element type assignments.
+
+        Returns:
+            True if any changes were made, False otherwise
+        """
+        changed = False
+
+        for func_name, signature in self.func_registry.signatures.items():
+            for call_site in signature.call_sites:
+                # For each argument at this call site
+                for arg_idx, arg_symbol_name in enumerate(call_site.arg_symbols):
+                    if not arg_symbol_name:
+                        # Argument is not a simple name (e.g., expression)
+                        continue
+
+                    # Get argument's table info
+                    arg_table_info = self.table_info.get(arg_symbol_name)
+                    if not arg_table_info or not arg_table_info.is_array:
+                        # Argument not an array or no type info
+                        continue
+
+                    # Get parameter's current table info
+                    param_table_info = self.func_registry.get_param_table_info(
+                        func_name, arg_idx
+                    )
+
+                    if not param_table_info:
+                        # Initialize parameter table info from argument
+                        self.func_registry.update_param_table_info(
+                            func_name, arg_idx, arg_table_info
+                        )
+                        self.propagation_logger.log_propagation(
+                            from_symbol=arg_symbol_name,
+                            to_symbol=f"{func_name}[{arg_idx}]",
+                            table_info=arg_table_info,
+                            direction=PropagationDirection.ARGS_TO_PARAMS,
+                            line=call_site.line_number
+                        )
+                        changed = True
+                    else:
+                        # Merge table info (handle conflicts)
+                        if self._merge_table_info(param_table_info, arg_table_info):
+                            self.propagation_logger.log_propagation(
+                                from_symbol=arg_symbol_name,
+                                to_symbol=f"{func_name}[{arg_idx}]",
+                                table_info=param_table_info,
+                                direction=PropagationDirection.ARGS_TO_PARAMS,
+                                line=call_site.line_number
+                            )
+                            changed = True
+
+        return changed
+
+    def _propagate_params_to_args(self) -> bool:
+        """Propagate types from parameters back to arguments
+
+        For each function with typed parameters, propagates the
+        parameter type information to all arguments at call sites.
+        This handles cases like spectral-norm.lua where empty
+        tables are passed to functions expecting typed arrays.
+
+        Returns:
+            True if any changes were made, False otherwise
+        """
+        changed = False
+
+        for func_name, signature in self.func_registry.signatures.items():
+            for param_idx, param_name in enumerate(signature.param_names):
+                # Get parameter's table info
+                param_table_info = self.func_registry.get_param_table_info(
+                    func_name, param_idx
+                )
+                if not param_table_info or not param_table_info.is_array:
+                    # Parameter not an array or no type info
+                    continue
+
+                # Propagate to all call sites
+                for call_site in signature.call_sites:
+                    arg_symbol_name = call_site.get_arg_symbol(param_idx)
+                    if not arg_symbol_name:
+                        # Argument is not a simple name
+                        continue
+
+                    # Get argument's current table info
+                    arg_table_info = self.table_info.get(arg_symbol_name)
+
+                    if not arg_table_info:
+                        # Initialize argument table info from parameter
+                        self.table_info[arg_symbol_name] = TableTypeInfo(
+                            is_array=True,
+                            value_type=param_table_info.value_type
+                        )
+                        self.propagation_logger.log_propagation(
+                            from_symbol=f"{func_name}[{param_idx}]",
+                            to_symbol=arg_symbol_name,
+                            table_info=self.table_info[arg_symbol_name],
+                            direction=PropagationDirection.PARAMS_TO_ARGS,
+                            line=call_site.line_number
+                        )
+                        changed = True
+                    else:
+                        # Merge table info (handle conflicts)
+                        if self._merge_table_info(arg_table_info, param_table_info):
+                            self.propagation_logger.log_propagation(
+                                from_symbol=f"{func_name}[{param_idx}]",
+                                to_symbol=arg_symbol_name,
+                                table_info=arg_table_info,
+                                direction=PropagationDirection.PARAMS_TO_ARGS,
+                                line=call_site.line_number
+                            )
+                            changed = True
+
+        return changed
+
+    def _merge_table_info(self, target: TableTypeInfo, source: TableTypeInfo) -> bool:
+        """Merge source table info into target
+
+        Handles conflict resolution using VARIANT types when source
+        and target have incompatible value types (user's choice).
+
+        Preference order (most specific first):
+        1. Known value type (NUMBER, STRING, etc.)
+        2. Array flag (if source is array, target becomes array)
+        3. UNKNOWN (fallback)
+
+        Args:
+            target: TableTypeInfo to merge into (modified in place)
+            source: TableTypeInfo to merge from
+
+        Returns:
+            True if target was modified, False otherwise
+        """
+        changed = False
+
+        # Merge array flag
+        if source.is_array and not target.is_array:
+            target.is_array = True
+            changed = True
+
+        # Merge value types with conflict resolution
+        if source.value_type and target.value_type:
+            if target.value_type.kind != source.value_type.kind:
+                # Conflict - create VARIANT type
+                if target.value_type.kind != TypeKind.VARIANT:
+                    # First conflict detected
+                    existing_type = target.value_type
+                    target.value_type = Type(
+                        TypeKind.VARIANT,
+                        subtypes=[existing_type, source.value_type]
+                    )
+                    self.propagation_logger.log_conflict(
+                        symbol=target.value_type.cpp_type(),
+                        existing_type=existing_type,
+                        new_type=source.value_type,
+                        result_type=target.value_type
+                    )
+                    changed = True
+                else:
+                    # Already VARIANT - add to subtypes
+                    if source.value_type not in target.value_type.subtypes:
+                        target.value_type.subtypes.append(source.value_type)
+                        changed = True
+        elif source.value_type:
+            # Target has no value type, use source's
+            target.value_type = source.value_type
+            changed = True
+
+        return changed
+
+    def _validate_and_finalize(self) -> None:
+        """Pass 4: Validate and finalize all types
+
+        Ensures type consistency and finalizes all table information.
+        Currently a placeholder for future validation integration.
+        """
+        # Finalize array decisions for all table_info
+        for symbol_name, table_info in self.table_info.items():
+            table_info.finalize_array()
 
     def _infer_statement(self, stmt: astnodes.Node) -> None:
         """Infer types in a statement"""
@@ -34,7 +347,8 @@ class TypeInference:
         elif isinstance(stmt, astnodes.LocalFunction):
             self._infer_local_function(stmt)
         elif isinstance(stmt, astnodes.Call):
-            self._infer_expression(stmt.func)
+            # Process entire Call expression to trigger call site recording
+            self._infer_expression(stmt)
         elif isinstance(stmt, astnodes.While):
             self._infer_expression(stmt.test)
             for s in stmt.body.body:
@@ -65,14 +379,14 @@ class TypeInference:
             self._infer_expression(stmt.stop)
             if stmt.step and isinstance(stmt.step, astnodes.Node):
                 self._infer_expression(stmt.step)
-            
+
             # Infer type for loop target variable
             if hasattr(stmt.target, 'id'):
                 var_name = stmt.target.id
                 # Don't define the symbol here, just infer its type
                 # The symbol will be defined during code generation
                 self._merge_type(var_name, start_type)
-            
+
             # Infer body statements
             for s in stmt.body.body:
                 self._infer_statement(s)
@@ -110,19 +424,32 @@ class TypeInference:
         func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
         self._merge_type(func_name, Type(TypeKind.FUNCTION))
 
+        # Initialize parameter symbols
         for param in stmt.args:
             if hasattr(param, 'id'):
                 self._merge_type(param.id, Type(TypeKind.UNKNOWN))
 
-        # Infer function body and track parameter array usage
+        # Register function signature (if not already registered)
+        # This ensures signature exists before analyzing body
+        if not self.func_registry.has_function(func_name):
+            param_names = [p.id for p in stmt.args if hasattr(p, 'id')]
+            self.func_registry.register_function(func_name, param_names, is_local=True)
+
+        # Track current function for call site recording
+        self._current_function = func_name
+
+        # Infer function body
         for s in stmt.body.body:
             self._infer_statement(s)
-        
+
+        # Reset current function
+        self._current_function = None
+
         # Heuristic: if parameters are used with array indexing (read or write), mark them as arrays
         for s in stmt.body.body:
-            self._track_param_array_usage(stmt.args, s)
+            self._track_param_array_usage(stmt.args, s, func_name)
 
-    def _infer_expression(self, expr: astnodes.Node) -> Type:
+    def _infer_expression(self, expr: astnodes.Node, parent_expr: Optional[astnodes.Node] = None) -> Type:
         """Infer type of an expression"""
         if isinstance(expr, astnodes.Number):
             type_info = Type(TypeKind.NUMBER, is_constant=True)
@@ -145,6 +472,25 @@ class TypeInference:
             ASTAnnotationStore.set_type(expr, type_info)
             return type_info
         elif isinstance(expr, astnodes.Call):
+            # Track call site for inter-procedural analysis
+            func_name = self._get_function_name(expr)
+            arg_symbols = [self._extract_arg_name(arg) for arg in expr.args]
+
+            if func_name:
+                # Record this call site (including module-level calls)
+                caller_name = self._current_function or "<module>"
+                self.func_registry.record_call_site(
+                    caller=caller_name,
+                    callee=func_name,
+                    arg_symbols=arg_symbols,
+                    line=expr.line if hasattr(expr, 'line') else None
+                )
+
+            # Infer types for function and arguments
+            self._infer_expression(expr.func, parent_expr=expr)
+            for arg in expr.args:
+                self._infer_expression(arg, parent_expr=expr)
+
             type_info = Type(TypeKind.UNKNOWN)
             ASTAnnotationStore.set_type(expr, type_info)
             return type_info
@@ -153,8 +499,8 @@ class TypeInference:
             ASTAnnotationStore.set_type(expr, type_info)
             return type_info
         elif isinstance(expr, astnodes.Index):
-            self._infer_table_index(expr)
-            type_info = Type(TypeKind.UNKNOWN)
+            element_type = self._infer_table_index(expr, parent_expr=parent_expr)
+            type_info = element_type
             ASTAnnotationStore.set_type(expr, type_info)
             return type_info
         elif isinstance(expr, astnodes.AnonymousFunction):
@@ -164,12 +510,14 @@ class TypeInference:
         elif isinstance(expr, (astnodes.AddOp, astnodes.SubOp, astnodes.MultOp,
                                 astnodes.FloatDivOp, astnodes.FloorDivOp,
                                 astnodes.ModOp, astnodes.ExpoOp)):
-            left_type = self._infer_expression(expr.left)
-            right_type = self._infer_expression(expr.right)
+            left_type = self._infer_expression(expr.left, parent_expr=expr)
+            right_type = self._infer_expression(expr.right, parent_expr=expr)
             type_info = self._infer_arithmetic_result(left_type, right_type)
             ASTAnnotationStore.set_type(expr, type_info)
             return type_info
         elif isinstance(expr, (astnodes.Concat,)):
+            left_type = self._infer_expression(expr.left, parent_expr=expr)
+            right_type = self._infer_expression(expr.right, parent_expr=expr)
             type_info = Type(TypeKind.STRING)
             ASTAnnotationStore.set_type(expr, type_info)
             return type_info
@@ -242,17 +590,52 @@ class TypeInference:
         else:
             return Type(TypeKind.VARIANT, subtypes=[left, right])
 
-    def _infer_table_index(self, index_expr: astnodes.Index, value_expr: Optional[astnodes.Node] = None) -> None:
-        """Analyze table indexing to determine array vs map"""
+    def _infer_table_index(self, index_expr: astnodes.Index, value_expr: Optional[astnodes.Node] = None, parent_expr: Optional[astnodes.Node] = None) -> Type:
+        """Analyze table indexing to determine array vs map
+
+        Handles both regular variables and function parameters.
+        For function parameters, updates table info in the function registry.
+
+        Args:
+            index_expr: Index expression (table[idx])
+            value_expr: Value expression (for assignments like t[i] = val)
+            parent_expr: Parent expression to infer element type from usage context
+
+        Returns:
+            Inferred element type (or UNKNOWN if unknown)
+        """
         table_name = self._get_table_name(index_expr.value)
         if not table_name:
-            return
+            return Type(TypeKind.UNKNOWN)
 
-        if table_name not in self.table_info:
-            self.table_info[table_name] = TableTypeInfo()
+        # Check if this is a function parameter
+        is_param = False
+        param_index = -1
+        if self._current_function:
+            signature = self.func_registry.get_signature(self._current_function)
+            if signature:
+                param_index = signature.get_param_index(table_name)
+                if param_index is not None:
+                    is_param = True
 
-        info = self.table_info[table_name]
+        # Update table info for regular variables
+        if not is_param:
+            if table_name not in self.table_info:
+                self.table_info[table_name] = TableTypeInfo()
+            info = self.table_info[table_name]
+        else:
+            # Get or create parameter table info
+            param_info = self.func_registry.get_param_table_info(
+                self._current_function, param_index
+            )
+            if not param_info:
+                param_info = TableTypeInfo()
+                self.func_registry.update_param_table_info(
+                    self._current_function, param_index, param_info
+                )
+            info = param_info
 
+        # Track key usage
         key_expr = index_expr.idx
         if isinstance(key_expr, astnodes.Number):
             key_num = int(key_expr.n)
@@ -261,13 +644,35 @@ class TypeInference:
         elif isinstance(key_expr, astnodes.String):
             string_val = key_expr.s.decode() if isinstance(key_expr.s, bytes) else key_expr.s
             info.has_string_keys.add(string_val)
+        elif isinstance(key_expr, astnodes.Name):
+            # Field access like t.key is equivalent to t["key"]
+            # Only track as string key if notation is DOT (not SQUARE bracket)
+            if hasattr(index_expr, 'notation'):
+                from luaparser.astnodes import IndexNotation
+                if index_expr.notation == IndexNotation.DOT:
+                    info.has_string_keys.add(key_expr.id)
 
+        # Infer value type from assigned value
         if value_expr:
             value_type = self._infer_expression(value_expr)
             if info.value_type is None:
                 info.value_type = value_type
             elif info.value_type.kind != value_type.kind:
+                # Merge conflicting types into VARIANT
                 info.value_type = Type(TypeKind.VARIANT, subtypes=[info.value_type, value_type])
+        elif parent_expr and info.value_type is None:
+            # No explicit value, but we have parent context - infer element type from usage
+            if isinstance(parent_expr, (astnodes.AddOp, astnodes.SubOp, astnodes.MultOp,
+                                        astnodes.FloatDivOp, astnodes.FloorDivOp,
+                                        astnodes.ModOp, astnodes.ExpoOp)):
+                # Used in arithmetic - element type is NUMBER
+                info.value_type = Type(TypeKind.NUMBER)
+            elif isinstance(parent_expr, astnodes.Concat):
+                # Used in string concatenation - element type is STRING
+                info.value_type = Type(TypeKind.STRING)
+
+        # Return the inferred element type
+        return info.value_type if info.value_type else Type(TypeKind.UNKNOWN)
 
     def _get_table_name(self, expr: astnodes.Node) -> Optional[str]:
         """Get the name of a table from an expression"""
@@ -352,24 +757,43 @@ class TypeInference:
             self.table_info[symbol].is_array = self.table_info[symbol].finalize_array()
         return self.table_info.get(symbol)
 
-    def _track_param_array_usage(self, params: list, stmt: astnodes.Node) -> None:
-        """Track if function parameters are used as arrays (heuristic for Fix 4)"""
+    def _track_param_array_usage(self, params: list, stmt: astnodes.Node, func_name: str) -> None:
+        """Track if function parameters are used as arrays (heuristic for Fix 4)
+
+        Analyzes statements within function bodies to detect when parameters
+        are used with array indexing, marking them as typed arrays.
+        Also infers element types from arithmetic operations.
+
+        Args:
+            params: List of function parameter AST nodes
+            stmt: Statement to analyze for parameter usage
+            func_name: Name of function containing these parameters
+        """
         param_names = {p.id for p in params if hasattr(p, 'id')}
-        
+
         # Check if this statement uses array indexing on parameters (both read and write)
         def check_for_param_array_index(node):
             if isinstance(node, astnodes.Index):
                 if isinstance(node.value, astnodes.Name) and node.value.id in param_names:
                     # Parameter used with array indexing - mark as array
                     param_name = node.value.id
-                    if param_name not in self.table_info:
-                        self.table_info[param_name] = TableTypeInfo()
-                    self.table_info[param_name].is_array = True
-                    # Infer element type from index (NUMBER for array indices)
-                    if self.table_info[param_name].value_type is None:
-                        self.table_info[param_name].value_type = Type(TypeKind.NUMBER)
-            
-            # Recursively check children (manually since astnodes.iter_child_nodes may not exist)
+                    param_index = self.func_registry.get_signature(func_name).get_param_index(param_name)
+
+                    if param_index is not None:
+                        param_info = self.func_registry.get_param_table_info(func_name, param_index)
+                        if param_info is None:
+                            # Create table info for this parameter
+                            table_info = TableTypeInfo()
+                            table_info.is_array = True
+                            # Infer element type from context if available
+                            # Check if parameter is used in arithmetic operations
+                            # This is handled in _infer_table_index
+                            self.func_registry.update_param_table_info(func_name, param_index, table_info)
+                        else:
+                            # Ensure array flag is set
+                            param_info.is_array = True
+
+            # Recursively check children
             if hasattr(node, 'left'):
                 check_for_param_array_index(node.left)
             if hasattr(node, 'right'):
@@ -392,8 +816,41 @@ class TypeInference:
             if hasattr(node, 'targets'):
                 for t in node.targets:
                     check_for_param_array_index(t)
-        
+
         check_for_param_array_index(stmt)
+
+    def _get_function_name(self, call_expr: astnodes.Call) -> Optional[str]:
+        """Extract function name from a call expression
+
+        Handles simple name-based calls only. Complex expressions
+        (e.g., "obj.method()", "table[key]()") are not supported
+        for type propagation.
+
+        Args:
+            call_expr: Call AST node
+
+        Returns:
+            Function name or None if not a simple name
+        """
+        if isinstance(call_expr.func, astnodes.Name):
+            return call_expr.func.id
+        return None
+
+    def _extract_arg_name(self, arg_expr: astnodes.Node) -> Optional[str]:
+        """Extract symbol name from an argument expression
+
+        Only extracts names for simple identifier arguments.
+        Complex expressions return None.
+
+        Args:
+            arg_expr: Argument expression AST node
+
+        Returns:
+            Symbol name or None if not a simple name
+        """
+        if isinstance(arg_expr, astnodes.Name):
+            return arg_expr.id
+        return None
 
     def _mark_expr_chain_requires_lua_value(self, expr: astnodes.Node) -> None:
         """Mark an entire expression chain as requiring luaValue"""
