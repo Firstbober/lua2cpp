@@ -9,7 +9,9 @@ from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind, TableTypeInfo
 from lua2c.core.type_conversion import TypeConverter
 from lua2c.core.ast_annotation import ASTAnnotationStore
+from lua2c.core.global_type_registry import GlobalTypeRegistry
 from lua2c.generators.naming import NamingScheme
+
 try:
     from luaparser import astnodes
 except ImportError:
@@ -20,30 +22,64 @@ class ExprGenerator:
     """Generates C++ code for Lua expressions"""
 
     LIBRARY_FUNCTIONS = {
-        'io': ['write', 'read', 'open', 'close', 'flush', 'type'],
-        'string': ['format', 'sub', 'upper', 'lower', 'rep', 'find', 'match', 'gmatch', 'gsub', 'byte', 'char', 'len'],
-        'math': ['abs', 'acos', 'asin', 'atan', 'ceil', 'cos', 'deg', 'exp', 'floor', 'fmod', 'log', 'max', 'min', 'modf', 'rad', 'random', 'randomseed', 'sin', 'sqrt', 'tan'],
-        'table': ['insert', 'remove', 'concat', 'sort', 'pack', 'unpack'],
-        'os': ['clock', 'date', 'difftime', 'time'],
+        "io": ["write", "read", "open", "close", "flush", "type"],
+        "string": [
+            "format",
+            "sub",
+            "upper",
+            "lower",
+            "rep",
+            "find",
+            "match",
+            "gmatch",
+            "gsub",
+            "byte",
+            "char",
+            "len",
+        ],
+        "math": [
+            "abs",
+            "acos",
+            "asin",
+            "atan",
+            "ceil",
+            "cos",
+            "deg",
+            "exp",
+            "floor",
+            "fmod",
+            "log",
+            "max",
+            "min",
+            "modf",
+            "rad",
+            "random",
+            "randomseed",
+            "sin",
+            "sqrt",
+            "tan",
+        ],
+        "table": ["insert", "remove", "concat", "sort", "pack", "unpack"],
+        "os": ["clock", "date", "difftime", "time"],
     }
 
     PRECEDENCE = {
-        'ExpoOp': 10,
-        'MultOp': 9,
-        'FloatDivOp': 9,
-        'FloorDivOp': 9,
-        'ModOp': 9,
-        'AddOp': 8,
-        'SubOp': 8,
-        'Concat': 7,
-        'LessThanOp': 6,
-        'LessOrEqThanOp': 6,
-        'GreaterThanOp': 6,
-        'GreaterOrEqThanOp': 6,
-        'EqToOp': 6,
-        'NotEqToOp': 6,
-        'AndLoOp': 5,
-        'OrLoOp': 4,
+        "ExpoOp": 10,
+        "MultOp": 9,
+        "FloatDivOp": 9,
+        "FloorDivOp": 9,
+        "ModOp": 9,
+        "AddOp": 8,
+        "SubOp": 8,
+        "Concat": 7,
+        "LessThanOp": 6,
+        "LessOrEqThanOp": 6,
+        "GreaterThanOp": 6,
+        "GreaterOrEqThanOp": 6,
+        "EqToOp": 6,
+        "NotEqToOp": 6,
+        "AndLoOp": 5,
+        "OrLoOp": 4,
     }
 
     def __init__(self, context: TranslationContext) -> None:
@@ -113,14 +149,14 @@ class ExprGenerator:
     def _get_symbol_type(self, name: str) -> Optional[Type]:
         """Get inferred type for a symbol"""
         symbol = self.context.resolve_symbol(name)
-        if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
+        if symbol and hasattr(symbol, "inferred_type") and symbol.inferred_type:
             return symbol.inferred_type
         return None
 
     def _get_table_info(self, name: str):
         """Get table info for a symbol"""
         symbol = self.context.resolve_symbol(name)
-        if symbol and hasattr(symbol, 'table_info') and symbol.table_info:
+        if symbol and hasattr(symbol, "table_info") and symbol.table_info:
             return symbol.table_info
         return None
 
@@ -174,9 +210,7 @@ class ExprGenerator:
         Raises:
             NotImplementedError: If node type not supported
         """
-        raise NotImplementedError(
-            f"Expression type {expr.__class__.__name__} not yet implemented"
-        )
+        raise NotImplementedError(f"Expression type {expr.__class__.__name__} not yet implemented")
 
     def visit_Number(self, expr: astnodes.Number) -> str:
         """Generate code for number literal
@@ -205,13 +239,13 @@ class ExprGenerator:
             C++ code for string literal
         """
         string_value = expr.s.decode() if isinstance(expr.s, bytes) else expr.s
-        index = self.context.add_string_literal(string_value)
+        escaped = string_value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
         type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
 
         if not self._should_use_lua_value(type_hint) and type_hint:
-            return f'std::string(string_pool[{index}])'
+            return f'std::string("{escaped}")'
 
-        return f'luaValue(string_pool[{index}])'
+        return f'luaValue("{escaped}")'
 
     def visit_TrueExpr(self, expr: astnodes.TrueExpr) -> str:
         """Generate code for true
@@ -273,10 +307,29 @@ class ExprGenerator:
         symbol = self.context.resolve_symbol(name)
 
         if symbol is None:
-            return f'state->get_global("{name}")'
+            if self.context.get_mode() == "project":
+                # Project mode: check if it's a library function or special global
+                if GlobalTypeRegistry.is_library_function(name):
+                    # Library function (e.g., print, tonumber)
+                    return f"state->{name}"
+                if GlobalTypeRegistry.get_global_type(name):
+                    # Special global (e.g., arg, _G)
+                    return f"state->{name}"
+                # Not a known function or global - treat as regular global (may be defined in another module)
+                # This allows multi-module projects to share globals
+                # If the global wasn't collected, C++ compiler will catch the error
+                return f"state->{name}"
+            else:
+                # Single-file mode: use get_global
+                return f'state->get_global("{name}")'
 
         if symbol.is_global:
-            return f'state->get_global("{name}")'
+            if self.context.get_mode() == "project":
+                # Project mode: direct member access
+                return f"state->{name}"
+            else:
+                # Single-file mode: use get_global
+                return f'state->get_global("{name}")'
         else:
             return name
 
@@ -295,7 +348,9 @@ class ExprGenerator:
         # Set expected types for operands BEFORE checking (fixes order bug)
         # This ensures recursive calls can use the expected type as a hint
         left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = (
+            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        )
         self._set_expected_type(expr.left, left_type_hint)
         self._set_expected_type(expr.right, right_type_hint)
 
@@ -304,8 +359,12 @@ class ExprGenerator:
         right_expected = self._get_expected_type(expr.right)
 
         # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
-        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        left_is_number = left_type.kind == TypeKind.NUMBER or (
+            left_expected and left_expected.kind == TypeKind.NUMBER
+        )
+        right_is_number = right_type.kind == TypeKind.NUMBER or (
+            right_expected and right_expected.kind == TypeKind.NUMBER
+        )
         result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
 
         if left_is_number and right_is_number and result_is_number:
@@ -318,8 +377,8 @@ class ExprGenerator:
             return f"{left} + {right}"
 
         # Otherwise use luaValue operator
-        left = self.generate_with_parentheses(expr.left, 'AddOp')
-        right = self.generate_with_parentheses(expr.right, 'AddOp')
+        left = self.generate_with_parentheses(expr.left, "AddOp")
+        right = self.generate_with_parentheses(expr.right, "AddOp")
         return f"{left} + {right}"
 
     def visit_SubOp(self, expr: astnodes.SubOp) -> str:
@@ -337,7 +396,9 @@ class ExprGenerator:
         # Set expected types for operands BEFORE checking (fixes order bug)
         # This ensures recursive calls can use the expected type as a hint
         left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = (
+            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        )
         self._set_expected_type(expr.left, left_type_hint)
         self._set_expected_type(expr.right, right_type_hint)
 
@@ -346,8 +407,12 @@ class ExprGenerator:
         right_expected = self._get_expected_type(expr.right)
 
         # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
-        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        left_is_number = left_type.kind == TypeKind.NUMBER or (
+            left_expected and left_expected.kind == TypeKind.NUMBER
+        )
+        right_is_number = right_type.kind == TypeKind.NUMBER or (
+            right_expected and right_expected.kind == TypeKind.NUMBER
+        )
         result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
 
         if left_is_number and right_is_number and result_is_number:
@@ -360,8 +425,8 @@ class ExprGenerator:
             return f"{left} - {right}"
 
         # Otherwise use luaValue operator
-        left = self.generate_with_parentheses(expr.left, 'SubOp')
-        right = self.generate_with_parentheses(expr.right, 'SubOp')
+        left = self.generate_with_parentheses(expr.left, "SubOp")
+        right = self.generate_with_parentheses(expr.right, "SubOp")
         return f"{left} - {right}"
 
     def visit_MultOp(self, expr: astnodes.MultOp) -> str:
@@ -379,7 +444,9 @@ class ExprGenerator:
         # Set expected types for operands BEFORE checking (fixes order bug)
         # This ensures recursive calls can use the expected type as a hint
         left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = (
+            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        )
         self._set_expected_type(expr.left, left_type_hint)
         self._set_expected_type(expr.right, right_type_hint)
 
@@ -388,8 +455,12 @@ class ExprGenerator:
         right_expected = self._get_expected_type(expr.right)
 
         # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
-        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        left_is_number = left_type.kind == TypeKind.NUMBER or (
+            left_expected and left_expected.kind == TypeKind.NUMBER
+        )
+        right_is_number = right_type.kind == TypeKind.NUMBER or (
+            right_expected and right_expected.kind == TypeKind.NUMBER
+        )
         result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
 
         if left_is_number and right_is_number and result_is_number:
@@ -407,8 +478,8 @@ class ExprGenerator:
             return f"{left} * {right}"
 
         # Otherwise use luaValue operator
-        left = self.generate_with_parentheses(expr.left, 'MultOp')
-        right = self.generate_with_parentheses(expr.right, 'MultOp')
+        left = self.generate_with_parentheses(expr.left, "MultOp")
+        right = self.generate_with_parentheses(expr.right, "MultOp")
         return f"{left} * {right}"
 
     def visit_FloatDivOp(self, expr: astnodes.FloatDivOp) -> str:
@@ -426,7 +497,9 @@ class ExprGenerator:
         # Set expected types for operands BEFORE checking (fixes order bug)
         # This ensures recursive calls can use the expected type as a hint
         left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        right_type_hint = (
+            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
+        )
         self._set_expected_type(expr.left, left_type_hint)
         self._set_expected_type(expr.right, right_type_hint)
 
@@ -435,8 +508,12 @@ class ExprGenerator:
         right_expected = self._get_expected_type(expr.right)
 
         # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (left_expected and left_expected.kind == TypeKind.NUMBER)
-        right_is_number = right_type.kind == TypeKind.NUMBER or (right_expected and right_expected.kind == TypeKind.NUMBER)
+        left_is_number = left_type.kind == TypeKind.NUMBER or (
+            left_expected and left_expected.kind == TypeKind.NUMBER
+        )
+        right_is_number = right_type.kind == TypeKind.NUMBER or (
+            right_expected and right_expected.kind == TypeKind.NUMBER
+        )
         result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
 
         if left_is_number and right_is_number and result_is_number:
@@ -449,68 +526,68 @@ class ExprGenerator:
             return f"{left} / {right}"
 
         # Otherwise use luaValue operator
-        left = self.generate_with_parentheses(expr.left, 'FloatDivOp')
-        right = self.generate_with_parentheses(expr.right, 'FloatDivOp')
+        left = self.generate_with_parentheses(expr.left, "FloatDivOp")
+        right = self.generate_with_parentheses(expr.right, "FloatDivOp")
         return f"{left} / {right}"
 
     def visit_FloorDivOp(self, expr: astnodes.FloorDivOp) -> str:
         """Generate code for floor division operation"""
-        left = self.generate_with_parentheses(expr.left, 'FloorDivOp')
-        right = self.generate_with_parentheses(expr.right, 'FloorDivOp')
+        left = self.generate_with_parentheses(expr.left, "FloorDivOp")
+        right = self.generate_with_parentheses(expr.right, "FloorDivOp")
         return f"l2c_floor_div({left}, {right})"
 
     def visit_ModOp(self, expr: astnodes.ModOp) -> str:
         """Generate code for modulo operation"""
-        left = self.generate_with_parentheses(expr.left, 'ModOp')
-        right = self.generate_with_parentheses(expr.right, 'ModOp')
+        left = self.generate_with_parentheses(expr.left, "ModOp")
+        right = self.generate_with_parentheses(expr.right, "ModOp")
         return f"{left} % {right}"
 
     def visit_ExpoOp(self, expr: astnodes.ExpoOp) -> str:
         """Generate code for exponentiation operation"""
-        left = self.generate_with_parentheses(expr.left, 'ExpoOp')
-        right = self.generate_with_parentheses(expr.right, 'ExpoOp')
+        left = self.generate_with_parentheses(expr.left, "ExpoOp")
+        right = self.generate_with_parentheses(expr.right, "ExpoOp")
         return f"l2c_pow({left}, {right})"
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
         """Generate code for equality operation"""
-        left = self.generate_with_parentheses(expr.left, 'EqToOp')
-        right = self.generate_with_parentheses(expr.right, 'EqToOp')
+        left = self.generate_with_parentheses(expr.left, "EqToOp")
+        right = self.generate_with_parentheses(expr.right, "EqToOp")
         return f"luaValue({left} == {right})"
 
     def visit_NotEqToOp(self, expr: astnodes.NotEqToOp) -> str:
         """Generate code for inequality operation"""
-        left = self.generate_with_parentheses(expr.left, 'NotEqToOp')
-        right = self.generate_with_parentheses(expr.right, 'NotEqToOp')
+        left = self.generate_with_parentheses(expr.left, "NotEqToOp")
+        right = self.generate_with_parentheses(expr.right, "NotEqToOp")
         return f"luaValue({left} != {right})"
 
     def visit_LessThanOp(self, expr: astnodes.LessThanOp) -> str:
         """Generate code for less-than operation"""
-        left = self.generate_with_parentheses(expr.left, 'LessThanOp')
-        right = self.generate_with_parentheses(expr.right, 'LessThanOp')
+        left = self.generate_with_parentheses(expr.left, "LessThanOp")
+        right = self.generate_with_parentheses(expr.right, "LessThanOp")
         return f"luaValue({left} < {right})"
 
     def visit_LessOrEqThanOp(self, expr: astnodes.LessOrEqThanOp) -> str:
         """Generate code for less-than-or-equal operation"""
-        left = self.generate_with_parentheses(expr.left, 'LessOrEqThanOp')
-        right = self.generate_with_parentheses(expr.right, 'LessOrEqThanOp')
+        left = self.generate_with_parentheses(expr.left, "LessOrEqThanOp")
+        right = self.generate_with_parentheses(expr.right, "LessOrEqThanOp")
         return f"luaValue({left} <= {right})"
 
     def visit_GreaterThanOp(self, expr: astnodes.GreaterThanOp) -> str:
         """Generate code for greater-than operation"""
-        left = self.generate_with_parentheses(expr.left, 'GreaterThanOp')
-        right = self.generate_with_parentheses(expr.right, 'GreaterThanOp')
+        left = self.generate_with_parentheses(expr.left, "GreaterThanOp")
+        right = self.generate_with_parentheses(expr.right, "GreaterThanOp")
         return f"luaValue({left} > {right})"
 
     def visit_GreaterOrEqThanOp(self, expr: astnodes.GreaterOrEqThanOp) -> str:
         """Generate code for greater-than-or-equal operation"""
-        left = self.generate_with_parentheses(expr.left, 'GreaterOrEqThanOp')
-        right = self.generate_with_parentheses(expr.right, 'GreaterOrEqThanOp')
+        left = self.generate_with_parentheses(expr.left, "GreaterOrEqThanOp")
+        right = self.generate_with_parentheses(expr.right, "GreaterOrEqThanOp")
         return f"luaValue({left} >= {right})"
 
     def visit_Concat(self, expr: astnodes.Concat) -> str:
         """Generate code for string concatenation"""
-        left = self.generate_with_parentheses(expr.left, 'Concat')
-        right = self.generate_with_parentheses(expr.right, 'Concat')
+        left = self.generate_with_parentheses(expr.left, "Concat")
+        right = self.generate_with_parentheses(expr.right, "Concat")
         return f"l2c_concat({left}, {right})"
 
     def visit_AndLoOp(self, expr: astnodes.AndLoOp) -> str:
@@ -570,6 +647,24 @@ class ExprGenerator:
 
     def visit_Call(self, expr: astnodes.Call) -> str:
         """Generate code for function call"""
+
+        # Handle require() in project mode (string literals only)
+        # Must check before symbol resolution since require() is a built-in
+        if self.context.get_mode() == "project":
+            if isinstance(expr.func, astnodes.Name) and expr.func.id == "require":
+                if expr.args and len(expr.args) > 0:
+                    arg = expr.args[0]
+                    if isinstance(arg, astnodes.String):
+                        module_path = arg.s.decode() if isinstance(arg.s, bytes) else arg.s
+                        # Convert require path to module name (e.g., "subdir.helper" -> "subdir_helper")
+                        module_name = module_path.replace(".", "_")
+                        # Generate: state.modules["utils"](state)
+                        return f'state.modules["{module_name}"](state)'
+                    else:
+                        raise ValueError(
+                            "require() only supports string literal arguments in project mode"
+                        )
+
         func = self.generate(expr.func)
 
         # Check if this is a local function call (needs state parameter)
@@ -640,8 +735,8 @@ class ExprGenerator:
         if not isinstance(expr.idx, astnodes.Name):
             return False
 
-        lib_name = expr.value.id if hasattr(expr.value, 'id') else None
-        func_name = expr.idx.id if hasattr(expr.idx, 'id') else None
+        lib_name = expr.value.id if hasattr(expr.value, "id") else None
+        func_name = expr.idx.id if hasattr(expr.idx, "id") else None
 
         if lib_name is None or func_name is None:
             return False
@@ -660,7 +755,7 @@ class ExprGenerator:
         if isinstance(expr, astnodes.Call):
             return True
         if isinstance(expr, astnodes.Name):
-            name = expr.id if hasattr(expr, 'id') else None
+            name = expr.id if hasattr(expr, "id") else None
             if name:
                 symbol = self.context.resolve_symbol(name)
                 if symbol is None or symbol.is_global:
@@ -686,7 +781,10 @@ class ExprGenerator:
             return True
         if isinstance(expr, astnodes.AnonymousFunction):
             return True
-        if isinstance(expr, (astnodes.Number, astnodes.String, astnodes.TrueExpr, astnodes.FalseExpr, astnodes.Nil)):
+        if isinstance(
+            expr,
+            (astnodes.Number, astnodes.String, astnodes.TrueExpr, astnodes.FalseExpr, astnodes.Nil),
+        ):
             return True
         if isinstance(expr, (astnodes.AndLoOp, astnodes.OrLoOp)):
             return True
@@ -697,7 +795,13 @@ class ExprGenerator:
         if self._is_library_function_index(expr):
             lib_name = expr.value.id
             func_name = expr.idx.id
-            return f'state->get_global("{lib_name}.{func_name}")'
+
+            if self.context.get_mode() == "project":
+                # Project mode: direct struct member access
+                return f"state->{lib_name}.{func_name}"
+            else:
+                # Single-file mode: get_global
+                return f'state->get_global("{lib_name}.{func_name}")'
 
         table = self.generate(expr.value)
 
@@ -711,6 +815,13 @@ class ExprGenerator:
                 key = self.generate(expr.idx)
                 return f"({table}).get({key} - 1)"
 
+        # Handle DOT notation: table.field -> table["field"]
+        from luaparser.astnodes import IndexNotation
+        if hasattr(expr, 'notation') and expr.notation == IndexNotation.DOT:
+            if isinstance(expr.idx, astnodes.Name):
+                field_name = expr.idx.id
+                return f'({table})["{field_name}"]'
+
         # Default: luaValue indexing
         key = self.generate(expr.idx)
         return f"({table})[{key}]"
@@ -720,16 +831,15 @@ class ExprGenerator:
         table = self.generate(expr.value)
         if expr.key and isinstance(expr.key, astnodes.Name):
             field_name = expr.key.id
-            index = self.context.add_string_literal(field_name)
-            return f'({table})[string_pool[{index}]]'
+            return f'({table})["{field_name}"]'
         else:
-            return f'({table})[luaValue(1)]'
+            return f"({table})[luaValue(1)]"
 
     def visit_Table(self, expr: astnodes.Table) -> str:
         """Generate code for table constructor"""
         # Get table info from type inference
         table_info = self._get_table_info_from_context(expr)
-        
+
         if not table_info:
             # Fall back to heuristics for anonymous tables
             is_array = self._is_array_table(expr)
@@ -737,7 +847,7 @@ class ExprGenerator:
         else:
             is_array = table_info.is_array
             element_type = table_info.value_type
-        
+
         # Generate typed table when possible
         if is_array:
             # Handle typed array
@@ -745,42 +855,42 @@ class ExprGenerator:
                 cpp_type = element_type.cpp_type()
                 if cpp_type == "auto":
                     return "luaValue::new_table()"
-                
+
                 # Set expected type for all elements to generate native literals
                 elements = []
-                if hasattr(expr, 'fields') and expr.fields:
+                if hasattr(expr, "fields") and expr.fields:
                     for field in expr.fields:
-                        if hasattr(field, 'value'):
+                        if hasattr(field, "value"):
                             self._set_expected_type(field.value, element_type)
                             elements.append(self.generate(field.value))
                             self._clear_expected_type(field.value)
-                
+
                 # Annotate the table expression with its concrete type
                 # This helps downstream code generation know what type this expression has
                 table_type = Type(TypeKind.TABLE)
                 ASTAnnotationStore.set_type(expr, table_type)
-                
+
                 if elements:
                     return f"luaArray<{cpp_type}>{{{{{', '.join(elements)}}}}}"
                 return f"luaArray<{cpp_type}>{{{{}}}}"
             # Handle array with unknown element type - use luaValue for dynamic typing
             elif element_type is None:
                 return "luaValue::new_table()"
-        
+
         # Fall back to luaValue table (for maps or unknown types)
         return "luaValue::new_table()"
 
-    def _get_table_info_from_context(self, expr: astnodes.Node) -> Optional['TableTypeInfo']:
+    def _get_table_info_from_context(self, expr: astnodes.Node) -> Optional["TableTypeInfo"]:
         """Get table info from context or annotation"""
         # First check if table_info is attached as annotation
         table_info = ASTAnnotationStore.get_annotation(expr, "table_info")
         if table_info:
             return table_info
-        
+
         # Fall back to heuristics for anonymous tables
         return None
-    
-    def _get_table_info_for_symbol(self, name: str) -> Optional['TableTypeInfo']:
+
+    def _get_table_info_for_symbol(self, name: str) -> Optional["TableTypeInfo"]:
         """Get table info for a named symbol"""
         type_inferencer = self.context.get_type_inferencer()
         if not type_inferencer:
@@ -789,10 +899,10 @@ class ExprGenerator:
 
     def _is_array_table(self, expr: astnodes.Table) -> bool:
         """Check if table is an array based on heuristics"""
-        if not hasattr(expr, 'fields') or not expr.fields:
+        if not hasattr(expr, "fields") or not expr.fields:
             return True
 
-        has_explicit_keys = any(hasattr(f, 'key') and f.key for f in expr.fields)
+        has_explicit_keys = any(hasattr(f, "key") and f.key for f in expr.fields)
         if has_explicit_keys:
             return False
 
@@ -800,12 +910,12 @@ class ExprGenerator:
 
     def _infer_array_element_type(self, expr: astnodes.Table) -> Optional[Type]:
         """Infer element type for array table"""
-        if not hasattr(expr, 'fields') or not expr.fields:
+        if not hasattr(expr, "fields") or not expr.fields:
             return None
 
         seen_kinds = set()
         for field in expr.fields:
-            if hasattr(field, 'value'):
+            if hasattr(field, "value"):
                 if isinstance(field.value, astnodes.Number):
                     seen_kinds.add(TypeKind.NUMBER)
                 elif isinstance(field.value, astnodes.String):

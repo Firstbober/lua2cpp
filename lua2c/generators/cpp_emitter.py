@@ -38,6 +38,7 @@ class CppEmitter:
         """Generate complete C++ file with multi-pass type inference
 
         Performs four-phase type analysis:
+
         1. Function signature collection
         2. Local type inference
         3. Inter-procedural type propagation
@@ -86,32 +87,37 @@ class CppEmitter:
         self.expr_gen.set_type_inferencer(type_inferencer)
         self.context.set_type_inferencer(type_inferencer)
 
-        # Phase 2: String collection (existing)
-        self._collect_strings(lua_ast)
+        # Store module name for project mode
+        module_name = str(input_file.with_suffix('').name)
+        self._module_name = module_name
 
         # Header comment
         lines.append(f"// Auto-generated from {input_file}")
         lines.append("// Lua2C Transpiler with Type Optimization")
         lines.append("")
 
-        # Includes (add deque and unordered_map)
-        lines.extend([
-            "#include \"lua_value.hpp\"",
-            "#include \"lua_state.hpp\"",
-            "#include \"lua_table.hpp\"",
-            "#include \"lua_array.hpp\"",
-            "#include <vector>",
-            "#include <string>",
-            "#include <deque>",
-            "#include <unordered_map>",
-            "#include <variant>",
-            "",
-        ])
-
-        # String pool
-        lines.append("// String pool")
-        lines.append(self.decl_gen.generate_string_pool())
-        lines.append("")
+        # Includes based on mode
+        if self.context.get_mode() == 'project':
+            # Project mode: include project state header and module header
+            lines.extend([
+                f'#include "{self.context.get_project_name()}_state.hpp"',
+                f'#include "{self.naming.module_export_name(module_name)}.hpp"',
+                "",
+            ])
+        else:
+            # Single-file mode: original includes
+            lines.extend([
+                "#include \"lua_value.hpp\"",
+                "#include \"lua_state.hpp\"",
+                "#include \"lua_table.hpp\"",
+                "#include \"lua_array.hpp\"",
+                "#include <vector>",
+                "#include <string>",
+                "#include <deque>",
+                "#include <unordered_map>",
+                "#include <variant>",
+                "",
+            ])
 
         # Forward declarations
         forward_decls = self.decl_gen.generate_forward_declarations()
@@ -127,75 +133,14 @@ class CppEmitter:
             lines.append("")
 
         # Generate module body statements
-        module_name = str(input_file.with_suffix(''))
         export_name = self.naming.module_export_name(module_name)
+        state_type = self.context.get_state_type()
         lines.append(f"// Module export: {export_name}")
-        lines.append(f"luaValue {export_name}(luaState* state) {{")
+        lines.append(f"luaValue {export_name}({state_type} state) {{")
         lines.extend(self._generate_module_body(lua_ast))
         lines.append("}")
 
         return "\n".join(lines)
-
-    def _collect_strings(self, chunk: astnodes.Chunk) -> None:
-        """First pass: collect all string literals into pool
-
-        Args:
-            chunk: Lua AST chunk
-        """
-        for stmt in chunk.body.body:
-            self._collect_strings_from_node(stmt)
-
-    def _collect_strings_from_node(self, node: astnodes.Node) -> None:
-        """Recursively collect strings from a node
-
-        Args:
-            node: AST node
-        """
-        if isinstance(node, astnodes.String):
-            string_value = node.s.decode() if isinstance(node.s, bytes) else node.s
-            self.context.add_string_literal(string_value)
-            return
-
-        # Known fields that contain child nodes
-        child_fields = []
-        if hasattr(node, 'body'):
-            if isinstance(node.body, astnodes.Block):
-                child_fields.extend(node.body.body)
-            elif isinstance(node.body, list):
-                child_fields.extend(node.body)
-            else:
-                child_fields.append(node.body)
-
-        if hasattr(node, 'left') and node.left:
-            child_fields.append(node.left)
-        if hasattr(node, 'right') and node.right:
-            child_fields.append(node.right)
-        if hasattr(node, 'operand') and node.operand:
-            child_fields.append(node.operand)
-        if hasattr(node, 'func') and node.func:
-            child_fields.append(node.func)
-        if hasattr(node, 'args') and node.args:
-            child_fields.extend(node.args)
-        if hasattr(node, 'targets') and node.targets:
-            child_fields.extend(node.targets)
-        if hasattr(node, 'values') and node.values:
-            child_fields.extend(node.values)
-        if hasattr(node, 'test') and node.test:
-            child_fields.append(node.test)
-        if hasattr(node, 'orelse') and node.orelse:
-            if isinstance(node.orelse, list):
-                child_fields.extend(node.orelse)
-            else:
-                child_fields.append(node.orelse)
-
-        # Recursively visit child nodes
-        for child in child_fields:
-            if isinstance(child, astnodes.Node):
-                self._collect_strings_from_node(child)
-            elif isinstance(child, list):
-                for item in child:
-                    if isinstance(item, astnodes.Node):
-                        self._collect_strings_from_node(item)
 
     def _collect_functions(self, chunk: astnodes.Chunk) -> List[str]:
         """Collect and generate all function definitions

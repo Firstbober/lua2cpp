@@ -54,15 +54,6 @@ class TestIntegration:
         assert "auto add" in cpp_code
         assert "print" in cpp_code
 
-    def test_spectral_norm_string_pool(self):
-        """Test that string literals are collected into pool"""
-        input_file = Path("tests/cpp/lua/spectral-norm.lua")
-        cpp_code = transpile_file(input_file)
-
-        # spectral-norm uses string format with "%0.9f\n"
-        assert "string_pool[]" in cpp_code
-        assert '"%0.9f\\n"' in cpp_code or "'%0.9f\\n'" in cpp_code
-
     @pytest.mark.skipif(
         True,
         reason="Requires sol2 headers to be installed - user will provide them"
@@ -116,5 +107,47 @@ int main() {
             ]
 
             result = subprocess.run(compile_cmd, capture_output=True, text=True)
-            # We expect this to fail without sol2, but the command should be valid
+            # We expect this to fail without sol2, but command should be valid
             assert result.returncode != 0 or True  # Just ensure command runs
+
+    def test_spectral_norm_as_project(self, tmp_path):
+        """Test that spectral-norm.lua transpiles correctly in project mode"""
+        from lua2c.cli.main import transpile_project
+
+        # Copy spectral-norm.lua to isolated test directory
+        input_file = Path("tests/cpp/lua/spectral-norm.lua")
+        assert input_file.exists(), "spectral-norm.lua not found"
+
+        test_dir = tmp_path / "test_project"
+        test_dir.mkdir()
+        test_file = test_dir / "spectral-norm.lua"
+        test_file.write_text(input_file.read_text())
+
+        # Run transpile_project() with verbose=False
+        transpile_project(test_file, verbose=False)
+
+        # Verify build directory was created
+        build_dir = test_dir / "build"
+        assert build_dir.exists(), "Build directory not created"
+
+        # Verify generated files exist
+        # Note: Project name is "test_project" (directory name), not "spectral_norm"
+        state_file = build_dir / "test_project_state.hpp"
+        assert state_file.exists(), f"State file not found: {state_file}"
+
+        assert (build_dir / "test_project_main.cpp").exists(), "main.cpp not found"
+        assert (build_dir / "spectral-norm_module.hpp").exists(), "module header not found"
+        assert (build_dir / "spectral-norm_module.cpp").exists(), "module cpp not found"
+
+        # Verify state header contains custom state struct
+        state_content = state_file.read_text()
+        assert "test_project_lua_State" in state_content, "Custom state struct not found"
+        assert "luaArray<luaValue> arg;" in state_content, "arg array not found in state"
+
+        # Verify math functions are correctly referenced (no -nan issues)
+        main_module = build_dir / "spectral-norm_module.cpp"
+        main_content = main_module.read_text()
+        assert "math.sqrt" in main_content, "math.sqrt not found in generated code"
+
+        # Verify no direct string-based global lookups (project mode uses state->member)
+        assert 'get_global("math")' not in main_content, "String-based global lookup found in project mode"

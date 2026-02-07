@@ -290,7 +290,11 @@ class StmtGenerator:
 
         # Use auto for all parameters
         params_str = ", ".join([f"auto& {p}" for p in param_names])
-        return f"auto {func_name}(luaState* state{', ' + params_str if params_str else ''}) {{\n    {body_code}\n}}"
+        state_type = self.context.get_state_type()
+        if params_str:
+            return f"auto {func_name}({state_type} state, {params_str}) {{\n    {body_code}\n}}"
+        else:
+            return f"auto {func_name}({state_type} state) {{\n    {body_code}\n}}"
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
         """Generate code for function call statement"""

@@ -62,25 +62,6 @@ class TestTranslationContext:
         depth = context.get_scope_manager().current_depth()
         assert depth == 0
 
-    def test_string_literal_add(self):
-        """Test adding string literals"""
-        context = TranslationContext(Path("/project"), "test")
-
-        idx1 = context.add_string_literal("hello")
-        idx2 = context.add_string_literal("world")
-        idx3 = context.add_string_literal("hello")  # Duplicate
-
-        assert idx1 == 0
-        assert idx2 == 1
-        assert idx3 == 0  # Same as idx1
-
-    def test_string_literal_get(self):
-        """Test getting string literals"""
-        context = TranslationContext(Path("/project"), "test")
-
-        context.add_string_literal("test")
-        assert context.get_string_literal(0) == "test"
-
     def test_define_local(self):
         """Test defining local variable"""
         context = TranslationContext(Path("/project"), "test")
@@ -150,13 +131,6 @@ class TestTranslationContext:
 
         symbols = context.get_all_symbols()
         assert len(symbols) == 3
-
-    def test_get_string_pool(self):
-        """Test getting string pool"""
-        context = TranslationContext(Path("/project"), "test")
-        pool = context.get_string_pool()
-        assert pool is not None
-        assert pool.size() == 0
 
     def test_get_scope_manager(self):
         """Test getting scope manager"""

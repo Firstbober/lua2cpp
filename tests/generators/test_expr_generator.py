@@ -41,8 +41,8 @@ class TestExprGenerator:
         """Test generating string literal"""
         expr = astnodes.String(s=b"hello", raw="hello")
         result = generator.generate(expr)
-        assert "string_pool" in result
-        assert "[" in result and "]" in result
+        assert '"hello"' in result
+        assert "luaValue(" in result or "std::string(" in result
 
     def test_generate_nil(self, generator):
         """Test generating nil"""
@@ -213,7 +213,7 @@ class TestExprGenerator:
         result = generator.generate(expr)
         assert "[" in result
         assert "]" in result
-        assert "string_pool" in result
+        assert '"x"' in result
 
     def test_generate_invoke(self, generator):
         """Test generating method invocation"""

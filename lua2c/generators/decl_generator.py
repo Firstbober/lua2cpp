@@ -34,35 +34,15 @@ class DeclGenerator:
         """
         declarations = []
 
+        state_type = self.context.get_state_type()
         symbols = self.context.get_all_symbols()
         for symbol in symbols:
-            if hasattr(symbol, 'symbol_type') and symbol.symbol_type == 'function':
+            if hasattr(symbol, 'is_function') and symbol.is_function:
                 func_name = symbol.name
-                decl = f"static luaValue {func_name}(luaState* state);"
+                decl = f"static luaValue {func_name}({state_type} state);"
                 declarations.append(decl)
 
         return declarations
-
-    def generate_string_pool(self) -> str:
-        """Generate string pool declarations
-
-        Returns:
-            C++ code for string pool
-        """
-        pool = self.context.get_string_pool()
-        strings = pool.all_strings()
-
-        if not strings:
-            return "static const char* string_pool[] = {nullptr};"
-
-        lines = ["static const char* string_pool[] = {"]
-        for i, s in enumerate(strings):
-            escaped = s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
-            lines.append(f'    "{escaped}",  /* {i} */')
-        lines.append("    nullptr")
-        lines.append("};")
-
-        return "\n".join(lines)
 
     def generate_module_export(self, module_path: str) -> str:
         """Generate module export function declaration
@@ -74,7 +54,9 @@ class DeclGenerator:
             C++ function signature
         """
         export_name = self.naming.module_export_name(module_path)
-        return f"luaValue {export_name}(luaState* state)"
+        state_type = self.context.get_state_type()
+        # Add 'state' as parameter name
+        return f"luaValue {export_name}({state_type} state)"
 
     def generate_includes(self) -> List[str]:
         """Generate C++ include directives

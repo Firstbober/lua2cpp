@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 from lua2c.core.scope import ScopeManager
 from lua2c.core.symbol_table import SymbolTable
-from lua2c.generators.string_pool import StringPool
 from lua2c.core.optimization_logger import OptimizationLogger
 
 
@@ -32,11 +31,12 @@ class TranslationContext:
 
         self.scope_manager = ScopeManager()
         self.symbol_table = SymbolTable(self.scope_manager)
-        self.string_pool = StringPool()
         self.optimization_logger = OptimizationLogger()
         self._type_inferencer = None
 
         self._current_function_depth = 0
+        self._mode = 'single'
+        self._project_name = None
 
     @property
     def current_function_depth(self) -> int:
@@ -66,28 +66,6 @@ class TranslationContext:
     def in_function(self) -> bool:
         """Check if currently in a function"""
         return self._current_function_depth > 0
-
-    def add_string_literal(self, literal: str) -> int:
-        """Add a string literal to the pool
-
-        Args:
-            literal: String literal
-
-        Returns:
-            Index in string pool
-        """
-        return self.string_pool.add(literal)
-
-    def get_string_literal(self, index: int) -> str:
-        """Get string literal by index
-
-        Args:
-            index: String pool index
-
-        Returns:
-            String literal
-        """
-        return self.string_pool.get(index)
 
     def define_local(self, name: str) -> None:
         """Define a local variable
@@ -164,14 +142,6 @@ class TranslationContext:
         """
         return self.symbol_table.get_all_symbols()
 
-    def get_string_pool(self) -> StringPool:
-        """Get string pool
-
-        Returns:
-            String pool instance
-        """
-        return self.string_pool
-
     def get_scope_manager(self) -> ScopeManager:
         """Get scope manager
 
@@ -211,3 +181,39 @@ class TranslationContext:
             TypeInference instance or None
         """
         return self._type_inferencer
+
+    def set_project_mode(self, project_name: str) -> None:
+        """Enable project mode with custom state type
+
+        Args:
+            project_name: Name of project (e.g., "myproject")
+        """
+        self._mode = 'project'
+        self._project_name = project_name
+
+    def get_mode(self) -> str:
+        """Get current transpilation mode
+
+        Returns:
+            'single' for single-file mode, 'project' for project mode
+        """
+        return self._mode
+
+    def get_project_name(self) -> Optional[str]:
+        """Get project name if in project mode
+
+        Returns:
+            Project name or None if in single-file mode
+        """
+        return self._project_name
+
+    def get_state_type(self) -> str:
+        """Get C++ state type name based on mode
+
+        Returns:
+            'luaState*' for single-file mode
+            '{project_name}_lua_State*' for project mode
+        """
+        if self._mode == 'project' and self._project_name:
+            return f"{self._project_name}_lua_State*"
+        return "luaState*"

@@ -43,6 +43,31 @@ Lua2C translates Lua 5.4 source code into C++ with the following key design prin
 pip install -e ".[dev]"
 ```
 
+### CLI Usage
+
+#### Single-File Mode
+
+Transpile a single Lua file to C++:
+
+```bash
+python -m lua2c.cli.main input.lua -o output.cpp
+```
+
+#### Project Mode
+
+Transpile a multi-module project with dependency resolution:
+
+```bash
+python -m lua2c.cli.main --main main.lua -o output_dir/
+python -m lua2c.cli.main --main path/to/main.lua --verbose
+```
+
+#### CLI Flags
+
+- `--main`: Treat input as project main file (transpile all modules)
+- `-o, --output`: Output file (single-file mode) or directory (project mode)
+- `--verbose, -v`: Enable verbose output (shows file discovery, dependency order)
+
 ### Running Tests
 
 ```bash
