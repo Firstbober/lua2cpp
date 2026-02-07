@@ -257,3 +257,70 @@ class MainGenerator:
             if lib in globals or any(g.startswith(f"{lib}.") for g in globals):
                 used_libs.add(lib)
         return used_libs
+
+    def generate_standalone_main(
+        self,
+        module_name: str,
+        used_libraries: Optional[Set[str]] = None,
+        globals: Optional[Set[str]] = None,
+    ) -> str:
+        """Generate main.cpp for standalone executable
+
+        Args:
+            module_name: Name of module (e.g., "simple")
+            used_libraries: Set of library modules used (io, math, string, etc.)
+            globals: Set of global variables used (for checking if arg is needed)
+
+        Returns:
+            Complete main.cpp as string
+        """
+        if used_libraries is None:
+            used_libraries = set()
+        if globals is None:
+            globals = set()
+
+        # State type is {module_name}_lua_State
+        state_type = f"{module_name}_lua_State"
+
+        init_lines = []
+
+        # Standalone functions (print, tonumber)
+        init_lines.append("state.print = &l2c::print;")
+        if "tonumber" in used_libraries or "tonumber" in globals:
+            init_lines.append("state.tonumber = &l2c::tonumber;")
+
+        # Library functions
+        for lib in sorted(used_libraries):
+            if lib in ('io', 'math', 'string', 'table', 'os'):
+                funcs = self.registry.get_module_functions(lib)
+                for func in sorted(funcs):
+                    init_lines.append(f"state.{lib}.{func} = &l2c::{lib}_{func};")
+
+        init_code = "\n            ".join(init_lines)
+
+        # Generate arg initialization only if arg is in globals
+        arg_init = ""
+        if "arg" in globals:
+            arg_init = f"""
+    // Set command-line arguments
+    state.arg = luaArray<luaValue>{{{{}}}};
+    for (int i = 1; i < argc; ++i) {{
+        state.arg.set(i - 1, luaValue(argv[i]));
+    }}"""
+
+        return f"""#include "{module_name}_state.hpp"
+#include "{module_name}_module.hpp"
+#include <iostream>
+
+int main(int argc, char* argv[]) {{
+    {state_type} state;{arg_init}
+
+    // Initialize library function pointers
+    {init_code}
+
+    // Call module entry point
+    luaValue result = _l2c__{module_name}_export(&state);
+
+    return 0;
+}}
+"""

@@ -67,13 +67,14 @@ class TranslationContext:
         """Check if currently in a function"""
         return self._current_function_depth > 0
 
-    def define_local(self, name: str) -> None:
+    def define_local(self, name: str, inferred_type: Optional['Type'] = None) -> None:
         """Define a local variable
 
         Args:
             name: Variable name
+            inferred_type: Optional inferred type information
         """
-        self.symbol_table.add_local(name)
+        self.symbol_table.add_local(name, inferred_type=inferred_type)
 
     def define_global(self, name: str) -> None:
         """Define a global variable
@@ -207,13 +208,32 @@ class TranslationContext:
         """
         return self._project_name
 
+    def set_single_file_mode(self, module_name: str, as_library: bool = False) -> None:
+        """Set single-file mode with custom state
+
+        Args:
+            module_name: Name of module (e.g., "simple")
+            as_library: If True, generate as library (no main.cpp, no arg)
+        """
+        self._mode = 'single_standalone' if not as_library else 'single_library'
+        self._project_name = module_name
+        self._as_library = as_library
+
+    def is_library_mode(self) -> bool:
+        """Check if generating as library (no main.cpp, no arg member)
+
+        Returns:
+            True if in library mode
+        """
+        return self._mode == 'single_library'
+
     def get_state_type(self) -> str:
         """Get C++ state type name based on mode
 
         Returns:
-            'luaState*' for single-file mode
-            '{project_name}_lua_State*' for project mode
+            '{project_name}_lua_State*' for custom state modes
+            'luaState*' for legacy (should never be used after migration)
         """
-        if self._mode == 'project' and self._project_name:
+        if self._mode in ('project', 'single_standalone', 'single_library'):
             return f"{self._project_name}_lua_State*"
         return "luaState*"

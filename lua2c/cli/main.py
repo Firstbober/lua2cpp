@@ -2,8 +2,9 @@
 
 import sys
 import argparse
+import traceback
 from pathlib import Path
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Dict
 
 try:
     from luaparser import ast
@@ -22,13 +23,15 @@ from lua2c.module_system.dependency_resolver import DependencyResolver
 
 
 def transpile_file(input_file: Path) -> str:
-    """Transpile a single Lua file to C++
+    """Transpile a single Lua file to C++ (legacy mode, DEPRECATED)
 
     Args:
         input_file: Path to Lua source file
 
     Returns:
         Generated C++ code
+
+    Note: This is deprecated. Use transpile_single_file() instead.
     """
     with open(input_file, 'r', encoding='utf-8') as f:
         source = f.read()
@@ -43,6 +46,217 @@ def transpile_file(input_file: Path) -> str:
     context = TranslationContext(Path.cwd(), module_path)
     emitter = CppEmitter(context)
     return emitter.generate_file(tree, input_file)
+
+
+def _collect_globals_from_tree(tree) -> Set[str]:
+    """Collect global variable names from AST
+
+    Args:
+        tree: Parsed Lua AST
+
+    Returns:
+        Set of global variable names
+    """
+    from luaparser import astnodes
+
+    globals = set()
+
+    def visit(node):
+        if isinstance(node, astnodes.Name):
+            globals.add(node.id)
+        elif hasattr(node, 'body'):
+            for child in (node.body if isinstance(node.body, list) else [node.body]):
+                visit(child)
+        elif hasattr(node, 'left'):
+            visit(node.left)
+        elif hasattr(node, 'right'):
+            visit(node.right)
+        elif hasattr(node, 'expr'):
+            visit(node.expr)
+        elif hasattr(node, 'init'):
+            visit(node.init)
+        elif hasattr(node, 'value'):
+            visit(node.value)
+        elif hasattr(node, 'args'):
+            for arg in node.args:
+                visit(arg)
+        elif hasattr(node, 'idx'):
+            visit(node.idx)
+            visit(node.value)
+        elif hasattr(node, 'operand'):
+            visit(node.operand)
+        elif hasattr(node, 'test'):
+            visit(node.test)
+        elif hasattr(node, 'orelse'):
+            orelse = node.orelse
+            if orelse:
+                for child in (orelse if isinstance(orelse, list) else [orelse]):
+                    visit(child)
+
+    visit(tree)
+    return globals
+
+
+def _collect_used_libraries(tree) -> Set[str]:
+    """Collect used standard libraries from AST
+
+    Args:
+        tree: Parsed Lua AST
+
+    Returns:
+        Set of library module names (io, math, string, table, os)
+    """
+    from luaparser import astnodes
+
+    libraries = set()
+    known_libs = {'io', 'math', 'string', 'table', 'os'}
+    standalone_funcs = {'print', 'tonumber'}
+
+    def check_node(node):
+        if isinstance(node, astnodes.Index):
+            if isinstance(node.value, astnodes.Name):
+                if node.value.id in known_libs:
+                    libraries.add(node.value.id)
+        elif isinstance(node, astnodes.Call):
+            # Check for library.function() calls
+            if isinstance(node.func, astnodes.Index):
+                if isinstance(node.func.value, astnodes.Name):
+                    if node.func.value.id in known_libs:
+                        libraries.add(node.func.value.id)
+            # Check for standalone functions (print, tonumber)
+            elif isinstance(node.func, astnodes.Name):
+                if node.func.id in standalone_funcs:
+                    libraries.add('print') if node.func.id == 'print' else None
+                    # tonumber is handled separately as a standalone function
+
+    # Simple BFS traversal to avoid recursion issues
+    nodes_to_visit = [tree]
+    while nodes_to_visit:
+        node = nodes_to_visit.pop(0)
+        check_node(node)
+
+        # Add children to visit
+        for attr in ['left', 'right', 'value', 'expr', 'init', 'body']:
+            child = getattr(node, attr, None)
+            if child is not None:
+                if isinstance(child, list):
+                    nodes_to_visit.extend(child)
+                else:
+                    nodes_to_visit.append(child)
+
+        # Handle Call args
+        if hasattr(node, 'args'):
+            nodes_to_visit.extend(node.args)
+
+        # Handle if/while/etc. bodies
+        if hasattr(node, 'elsebody'):
+            nodes_to_visit.append(node.elsebody)
+
+    return libraries
+
+
+def transpile_single_file(
+    input_file: Path,
+    output_name: Optional[str] = None,
+    as_library: bool = False,
+    output_dir: Optional[Path] = None
+) -> Dict[str, Optional[str]]:
+    """Transpile single Lua file with custom state
+
+    Args:
+        input_file: Input Lua file path
+        output_name: Custom name for output files (default: input filename)
+        as_library: If True, generate as library (no main.cpp, no arg member)
+        output_dir: Output directory (default: current directory)
+
+    Returns:
+        Dict with keys: 'state_hpp', 'module_hpp', 'module_cpp', 'main_cpp'
+        main_cpp is None if as_library=True
+
+    Raises:
+        FileNotFoundError: If input_file doesn't exist
+        Exception: If transpilation fails (with full stack trace)
+    """
+    import traceback
+
+    # Validate input
+    if not input_file.exists():
+        raise FileNotFoundError(f"Input file not found: {input_file}")
+
+    # Parse source
+    with open(input_file, 'r', encoding='utf-8') as f:
+        source = f.read()
+
+    try:
+        tree = ast.parse(source)
+    except Exception as e:
+        print(f"Error parsing {input_file}:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
+
+    # Determine module name
+    if output_name:
+        module_name = output_name
+    else:
+        module_name = input_file.stem
+
+    # Setup context
+    context = TranslationContext(input_file.parent, str(input_file.parent))
+    context.set_single_file_mode(module_name, as_library=as_library)
+
+    # Generate module cpp and header
+    emitter = CppEmitter(context)
+    try:
+        result = emitter.generate_file(tree, input_file, generate_header=True)
+        if isinstance(result, tuple):
+            module_cpp, module_hpp = result
+        else:
+            # Backward compatibility: if only module_cpp returned
+            module_cpp = result
+            # Generate header separately
+            state_type = f"{module_name}_lua_State"
+            from lua2c.generators.header_generator import HeaderGenerator
+            header_gen = HeaderGenerator()
+            module_hpp = header_gen.generate_module_header(module_name, state_type)
+    except Exception as e:
+        print(f"Error generating C++ from {input_file}:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
+
+    # Collect globals and used libraries
+    globals = _collect_globals_from_tree(tree)
+    used_libs = _collect_used_libraries(tree)
+    
+    # Manual check: if source contains 'arg', add to globals
+    if 'arg' in source:
+        globals.add('arg')
+
+    # Generate state header
+    state_gen = ProjectStateGenerator(module_name)
+    state_hpp = state_gen.generate_state_class(
+        globals=globals,
+        modules=set(),
+        library_modules=used_libs,
+        include_module_registry=False,
+        include_arg=not as_library,
+    )
+
+    # Generate main (if not library mode)
+    main_cpp = None
+    if not as_library:
+        main_gen = MainGenerator()
+        main_cpp = main_gen.generate_standalone_main(
+            module_name=module_name,
+            used_libraries=used_libs,
+            globals=globals,
+        )
+
+    return {
+        'state_hpp': state_hpp,
+        'module_hpp': module_hpp,
+        'module_cpp': module_cpp,
+        'main_cpp': main_cpp,
+    }
 
 
 def _determine_project_name(project_root: Path, main_file: Path) -> str:
@@ -316,27 +530,41 @@ def transpile_project(
 def main() -> None:
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
-        description='Lua to C++ transpiler',
+        description='Lua2C Transpiler - Convert Lua to C++',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-    Examples:
-    Single-file mode:
-    python -m lua2c.cli.main file.lua -o output.cpp
-    python -m lua2c.cli.main file.lua --output output.cpp
+Examples:
+  # Standalone executable mode (default)
+  lua2c input.lua
+  lua2c input.lua -o myapp
+  lua2c input.lua --output-dir build/
 
-    Project mode:
-    python -m lua2c.cli.main --main path/to/main.lua
-    python -m lua2c.cli.main --main path/to/main.lua -o output_dir/
+  # Library mode (embeddable)
+  lua2c input.lua --lib
+  lua2c input.lua --lib -o mymodule
+
+  # Project mode (multi-file)
+  lua2c --main path/to/main.lua
+  lua2c --main path/to/main.lua --output-dir build/
         """
     )
-    parser.add_argument('input', help='Input Lua file (or main file with --main flag)')
+
+    parser.add_argument('input', type=Path, help='Input Lua file')
+    parser.add_argument(
+        '--lib', action='store_true',
+        help='Generate as library (no main.cpp, no arg member)'
+    )
+    parser.add_argument(
+        '-o', '--output', type=str,
+        help='Custom output name (default: input filename)'
+    )
+    parser.add_argument(
+        '--output-dir', type=Path, default=Path.cwd(),
+        help='Output directory (default: current directory)'
+    )
     parser.add_argument(
         '--main', action='store_true',
         help='Treat input as project main file (transpile all modules)'
-    )
-    parser.add_argument(
-        '-o', '--output', dest='output',
-        help='Output file (single-file) or directory (project mode)'
     )
     parser.add_argument(
         '--verbose', '-v', action='store_true',
@@ -345,36 +573,78 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Validate input file
     input_file = Path(args.input)
-
     if not input_file.exists():
-        print(f"Error: File not found: {input_file}", file=sys.stderr)
+        print(f"Error: Input file not found: {input_file}", file=sys.stderr)
         sys.exit(1)
 
-    if args.main and input_file.suffix != '.lua':
-        print(f"Error: Main file must be a .lua file", file=sys.stderr)
+    # Create output directory if needed
+    output_dir = args.output_dir
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"Error: Cannot create output directory {output_dir}: {e}", file=sys.stderr)
         sys.exit(1)
 
     try:
         if args.main:
+            # Project mode
             output_path = Path(args.output) if args.output else None
             transpile_project(input_file, output_path, args.verbose)
         else:
-            cpp_code = transpile_file(input_file)
-            output_file = Path(args.output) if args.output else None
-            if output_file:
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write(cpp_code)
+            # Single-file mode
+            output_name = args.output if args.output else input_file.stem
+            results = transpile_single_file(
+                input_file=input_file,
+                output_name=output_name,
+                as_library=args.lib,
+                output_dir=output_dir,
+            )
+
+            # Determine base filename for output files
+            base_name = output_dir / output_name
+
+            # Write state header
+            state_file = base_name.with_name(f"{output_name}_state.hpp")
+            state_file.write_text(results['state_hpp'])
+            print(f"Generated: {state_file}")
+
+            # Write module header
+            module_hpp_file = base_name.with_name(f"{output_name}_module.hpp")
+            module_hpp_file.write_text(results['module_hpp'])
+            print(f"Generated: {module_hpp_file}")
+
+            # Write module cpp
+            module_cpp_file = base_name.with_name(f"{output_name}_module.cpp")
+            module_cpp_file.write_text(results['module_cpp'])
+            print(f"Generated: {module_cpp_file}")
+
+            # Write main (if not library mode)
+            if results['main_cpp']:
+                main_file = base_name.with_name(f"{output_name}_main.cpp")
+                main_file.write_text(results['main_cpp'])
+                print(f"Generated: {main_file}")
+
+                # Print compilation instructions
+                print(f"\nTo compile, use:")
+                print(f"  g++ -std=c++17 -I runtime {output_name}_main.cpp {output_name}_module.cpp runtime/lua_value.cpp runtime/lua_array.cpp runtime/lua_table.cpp -o {output_name}")
             else:
-                print(cpp_code)
-    except ValueError as e:
+                # Library mode usage instructions
+                print(f"\nTo use as library, include:")
+                print(f"  #include \"{output_name}_state.hpp\"")
+                print(f"  #include \"{output_name}_module.hpp\"")
+
+    except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
     except Exception as e:
-        print(f"Error transpiling: {e}", file=sys.stderr)
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
+        print(f"Error transpiling {input_file}:", file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)
 
 

@@ -34,7 +34,7 @@ class CppEmitter:
         self.decl_gen = DeclGenerator(context)
         self.naming = NamingScheme()
 
-    def generate_file(self, lua_ast: astnodes.Chunk, input_file: Path) -> str:
+    def generate_file(self, lua_ast: astnodes.Chunk, input_file: Path, generate_header: bool = False) -> str:
         """Generate complete C++ file with multi-pass type inference
 
         Performs four-phase type analysis:
@@ -47,9 +47,10 @@ class CppEmitter:
         Args:
             lua_ast: Lua AST chunk
             input_file: Input Lua file path
+            generate_header: If True, also return module header content
 
         Returns:
-            Complete C++ code as string
+            Complete C++ code as string, or tuple of (code, header) if generate_header=True
         """
         from lua2c.analyzers.type_inference import TypeInference
         from lua2c.analyzers.type_validator import TypeValidator, ValidationSeverity
@@ -97,27 +98,19 @@ class CppEmitter:
         lines.append("")
 
         # Includes based on mode
-        if self.context.get_mode() == 'project':
-            # Project mode: include project state header and module header
+        mode = self.context.get_mode()
+        state_name = self.context.get_project_name()
+        if mode in ('project', 'single_standalone', 'single_library'):
+            # Custom state modes: include state header and module header
+            # Use state_name for both to ensure consistent naming
+            module_header_name = f"{state_name}_module.hpp"
             lines.extend([
-                f'#include "{self.context.get_project_name()}_state.hpp"',
-                f'#include "{self.naming.module_export_name(module_name)}.hpp"',
+                f'#include "{state_name}_state.hpp"',
+                f'#include "{module_header_name}"',
                 "",
             ])
         else:
-            # Single-file mode: original includes
-            lines.extend([
-                "#include \"lua_value.hpp\"",
-                "#include \"lua_state.hpp\"",
-                "#include \"lua_table.hpp\"",
-                "#include \"lua_array.hpp\"",
-                "#include <vector>",
-                "#include <string>",
-                "#include <deque>",
-                "#include <unordered_map>",
-                "#include <variant>",
-                "",
-            ])
+            raise RuntimeError(f"Legacy mode '{mode}' not supported. Use project or single_custom modes.")
 
         # Forward declarations
         forward_decls = self.decl_gen.generate_forward_declarations()
@@ -135,12 +128,21 @@ class CppEmitter:
         # Generate module body statements
         export_name = self.naming.module_export_name(module_name)
         state_type = self.context.get_state_type()
+        state_name = self.context.get_project_name()
+        if state_name is None:
+            state_name = module_name
         lines.append(f"// Module export: {export_name}")
         lines.append(f"luaValue {export_name}({state_type} state) {{")
         lines.extend(self._generate_module_body(lua_ast))
         lines.append("}")
 
-        return "\n".join(lines)
+        module_cpp = "\n".join(lines)
+
+        if generate_header:
+            module_header = self.generate_module_header(module_name, state_type.rstrip('*'))
+            return module_cpp, module_header
+
+        return module_cpp
 
     def _collect_functions(self, chunk: astnodes.Chunk) -> List[str]:
         """Collect and generate all function definitions
@@ -196,3 +198,25 @@ class CppEmitter:
             C++ preprocessor directive
         """
         return f"#line {line} \"{file}\""
+
+    def generate_module_header(self, module_name: str, state_name: str) -> str:
+        """Generate module header file for single-file mode
+
+        Args:
+            module_name: Name of module (e.g., "simple")
+            state_name: Name of state type (e.g., "simple_lua_State")
+
+        Returns:
+            Module header content as string
+        """
+        # Calculate state base name (remove _lua_State suffix from state_name)
+        state_base = state_name.replace('_lua_State', '')
+        # Use naming scheme to generate export function name
+        export_name = self.naming.module_export_name(state_base)
+        return f"""#pragma once
+
+#include "l2c_runtime.hpp"
+#include "{state_base}_state.hpp"
+
+luaValue {export_name}({state_name}* state);
+"""

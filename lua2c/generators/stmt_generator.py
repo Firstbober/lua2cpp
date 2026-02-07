@@ -150,10 +150,18 @@ class StmtGenerator:
         """Generate code for local variable assignment"""
         # Define variables first, before generating expressions
         target_names = []
+        type_inferencer = self.context.get_type_inferencer()
+        
         for target in stmt.targets:
             if hasattr(target, 'id'):
                 var_name = target.id
-                self.context.define_local(var_name)
+                
+                # Get inferred type for this variable (Fix 1)
+                inferred_type = None
+                if type_inferencer:
+                    inferred_type = type_inferencer.get_type(var_name)
+                
+                self.context.define_local(var_name, inferred_type=inferred_type)
                 target_names.append(var_name)
             else:
                 target_names.append(self.expr_gen.generate(target))
@@ -383,14 +391,15 @@ class StmtGenerator:
         """Generate code for numeric for loop"""
         target_name = stmt.target.id if hasattr(stmt.target, 'id') else "i"
         self.context.enter_block()
-        self.context.define_local(target_name)
         
-        # Get inferred type for loop variable
-        # Try type inferencer first (for loop variables defined during generation)
+        # Get inferred type for loop variable and define it
         target_type = None
         type_inferencer = self.context.get_type_inferencer()
         if type_inferencer:
             target_type = type_inferencer.get_type(target_name)
+        
+        # Define local with inferred type (Fix 1)
+        self.context.define_local(target_name, inferred_type=target_type)
         
         # Fall back to symbol's inferred_type
         if not target_type:

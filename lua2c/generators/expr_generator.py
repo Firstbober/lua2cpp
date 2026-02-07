@@ -307,28 +307,32 @@ class ExprGenerator:
         symbol = self.context.resolve_symbol(name)
 
         if symbol is None:
-            if self.context.get_mode() == "project":
-                # Project mode: check if it's a library function or special global
-                if GlobalTypeRegistry.is_library_function(name):
-                    # Library function (e.g., print, tonumber)
-                    return f"state->{name}"
-                if GlobalTypeRegistry.get_global_type(name):
+            mode = self.context.get_mode()
+            if self.context.get_mode() in ('project', 'single_standalone', 'single_library'):
+                # Custom state modes: check if it's a library function or special global
+                is_lib_func = GlobalTypeRegistry.is_library_function(name)
+                is_global = GlobalTypeRegistry.get_global_type(name) is not None
+                if is_lib_func:
+                    result = f"state->{name}"
+                elif is_global:
                     # Special global (e.g., arg, _G)
-                    return f"state->{name}"
-                # Not a known function or global - treat as regular global (may be defined in another module)
-                # This allows multi-module projects to share globals
-                # If the global wasn't collected, C++ compiler will catch the error
-                return f"state->{name}"
+                    result = f"state->{name}"
+                else:
+                    # Not a known function or global - treat as regular global (may be defined in another module)
+                    # This allows multi-module projects to share globals
+                    # If the global wasn't collected, C++ compiler will catch the error
+                    result = f"state->{name}"
+                return result
             else:
-                # Single-file mode: use get_global
+                # Legacy single-file mode: use get_global
                 return f'state->get_global("{name}")'
 
         if symbol.is_global:
-            if self.context.get_mode() == "project":
-                # Project mode: direct member access
+            if self.context.get_mode() in ('project', 'single_standalone', 'single_library'):
+                # Custom state modes: direct member access
                 return f"state->{name}"
             else:
-                # Single-file mode: use get_global
+                # Legacy single-file mode: use get_global
                 return f'state->get_global("{name}")'
         else:
             return name
@@ -796,12 +800,11 @@ class ExprGenerator:
             lib_name = expr.value.id
             func_name = expr.idx.id
 
-            if self.context.get_mode() == "project":
-                # Project mode: direct struct member access
+            if self.context.get_mode() in ('project', 'single_standalone', 'single_library'):
+                # Custom state modes: direct struct member access
                 return f"state->{lib_name}.{func_name}"
             else:
-                # Single-file mode: get_global
-                return f'state->get_global("{lib_name}.{func_name}")'
+                raise RuntimeError(f"Unsupported mode for library index: {self.context.get_mode()}")
 
         table = self.generate(expr.value)
 
@@ -812,8 +815,26 @@ class ExprGenerator:
 
             if table_info and table_info.is_array:
                 # Array read - use get() method, convert Lua's 1-based indexing to C++'s 0-based indexing
-                key = self.generate(expr.idx)
-                return f"({table}).get({key} - 1)"
+                if isinstance(expr.idx, astnodes.Number):
+                    # Number literal: use native arithmetic
+                    key_value = expr.idx.n
+                    return f"({table}).get({key_value} - 1)"
+                elif isinstance(expr.idx, astnodes.Name):
+                    # Variable: check if it's a native number type
+                    symbol = self.context.resolve_symbol(expr.idx.id)
+                    inferred_type = None
+                    if symbol and hasattr(symbol, 'inferred_type'):
+                        inferred_type = symbol.inferred_type
+                    if inferred_type and inferred_type.kind.name == 'NUMBER':
+                        # Native number variable: don't call as_number()
+                        return f"({table}).get({expr.idx.id} - 1)"
+                    else:
+                        # luaValue or unknown type: call as_number()
+                        return f"({table}).get({expr.idx.id}.as_number() - 1)"
+                else:
+                    # Complex expression: generate and convert
+                    key = self.generate(expr.idx)
+                    return f"({table}).get({key}.as_number() - 1)"
 
         # Handle DOT notation: table.field -> table["field"]
         from luaparser.astnodes import IndexNotation

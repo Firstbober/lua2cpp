@@ -19,13 +19,13 @@ namespace l2c {
 // IO Library
 // ============================================================================
 
-void io_write(const std::vector<luaValue>& args) {
+inline void io_write(const std::vector<luaValue>& args) {
     for (const auto& arg : args) {
         std::cout << arg.as_string();
     }
 }
 
-std::string io_read(const std::string& format) {
+inline std::string io_read(const std::string& format) {
     if (format == "*l" || format == "*L") {
         std::string line;
         std::getline(std::cin, line);
@@ -34,7 +34,7 @@ std::string io_read(const std::string& format) {
     return "";
 }
 
-void io_flush() {
+inline void io_flush() {
     std::cout.flush();
 }
 
@@ -42,22 +42,22 @@ void io_flush() {
 // Math Library
 // ============================================================================
 
-double math_sqrt(double x) { return std::sqrt(x); }
-double math_abs(double x) { return std::abs(x); }
-double math_floor(double x) { return std::floor(x); }
-double math_ceil(double x) { return std::ceil(x); }
-double math_sin(double x) { return std::sin(x); }
-double math_cos(double x) { return std::cos(x); }
-double math_tan(double x) { return std::tan(x); }
-double math_log(double x) { return std::log(x); }
-double math_exp(double x) { return std::exp(x); }
+inline double math_sqrt(double x) { return std::sqrt(x); }
+inline double math_abs(double x) { return std::abs(x); }
+inline double math_floor(double x) { return std::floor(x); }
+inline double math_ceil(double x) { return std::ceil(x); }
+inline double math_sin(double x) { return std::sin(x); }
+inline double math_cos(double x) { return std::cos(x); }
+inline double math_tan(double x) { return std::tan(x); }
+inline double math_log(double x) { return std::log(x); }
+inline double math_exp(double x) { return std::exp(x); }
 
-double math_min(double a, double b) { return a < b ? a : b; }
-double math_max(double a, double b) { return a > b ? a : b; }
+inline double math_min(double a, double b) { return a < b ? a : b; }
+inline double math_max(double a, double b) { return a > b ? a : b; }
 
-double math_random() { return static_cast<double>(rand()) / RAND_MAX; }
+inline double math_random() { return static_cast<double>(rand()) / RAND_MAX; }
 
-double math_randomseed(double seed) {
+inline double math_randomseed(double seed) {
     srand(static_cast<unsigned int>(seed));
     return 0;
 }
@@ -66,7 +66,7 @@ double math_randomseed(double seed) {
 // String Library
 // ============================================================================
 
-std::string string_format(const std::string& fmt, const std::vector<luaValue>& args) {
+inline std::string string_format(const std::string& fmt, const std::vector<luaValue>& args) {
     std::ostringstream result;
     int pos = 1;
     size_t i = 0;
@@ -127,9 +127,9 @@ std::string string_format(const std::string& fmt, const std::vector<luaValue>& a
     return result.str();
 }
 
-double string_len(const std::string& s) { return static_cast<double>(s.length()); }
+inline double string_len(const std::string& s) { return static_cast<double>(s.length()); }
 
-std::string string_sub(const std::string& s, double start, double end) {
+inline std::string string_sub(const std::string& s, double start, double end) {
     int i = static_cast<int>(start) - 1;
     int j = static_cast<int>(end);
     if (i < 0) i = 0;
@@ -137,13 +137,13 @@ std::string string_sub(const std::string& s, double start, double end) {
     return s.substr(i, j - i);
 }
 
-std::string string_upper(const std::string& s) {
+inline std::string string_upper(const std::string& s) {
     std::string result = s;
     std::transform(result.begin(), result.end(), result.begin(), ::toupper);
     return result;
 }
 
-std::string string_lower(const std::string& s) {
+inline std::string string_lower(const std::string& s) {
     std::string result = s;
     std::transform(result.begin(), result.end(), result.begin(), ::tolower);
     return result;
@@ -153,7 +153,7 @@ std::string string_lower(const std::string& s) {
 // Table Library
 // ============================================================================
 
-luaValue table_unpack(const std::vector<luaValue>& args) {
+inline luaValue table_unpack(const std::vector<luaValue>& args) {
     if (args.empty()) return luaValue();
     return args[0];
 }
@@ -162,15 +162,15 @@ luaValue table_unpack(const std::vector<luaValue>& args) {
 // OS Library
 // ============================================================================
 
-double os_clock() {
+inline double os_clock() {
     return static_cast<double>(clock()) / CLOCKS_PER_SEC;
 }
 
-double os_time() {
+inline double os_time() {
     return static_cast<double>(std::time(nullptr));
 }
 
-std::string os_date(const std::string& format) {
+inline std::string os_date(const std::string& format) {
     std::time_t t = std::time(nullptr);
     if (format.empty()) {
         return std::asctime(std::localtime(&t));
@@ -184,7 +184,7 @@ std::string os_date(const std::string& format) {
 // Conversion Functions
 // ============================================================================
 
-double tonumber(const luaValue& val) {
+inline double tonumber(const luaValue& val) {
     return val.as_number();
 }
 
@@ -192,7 +192,7 @@ double tonumber(const luaValue& val) {
 // Print Function
 // ============================================================================
 
-void print(const std::vector<luaValue>& args) {
+inline void print(const std::vector<luaValue>& args) {
     for (size_t i = 0; i < args.size(); ++i) {
         if (i > 0) std::cout << "\t";
         std::cout << args[i].as_string();

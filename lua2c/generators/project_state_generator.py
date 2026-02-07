@@ -5,6 +5,7 @@ Replaces generic luaState with per-project typed state.
 """
 
 from typing import Set, Dict, List, Optional, Any
+import re
 from pathlib import Path
 from lua2c.core.global_type_registry import GlobalTypeRegistry
 
@@ -22,7 +23,8 @@ class ProjectStateGenerator:
         self.registry = GlobalTypeRegistry()
 
     def generate_state_class(
-        self, globals: Set[str], modules: Set[str], library_modules: Optional[Set[str]] = None
+        self, globals: Set[str], modules: Set[str], library_modules: Optional[Set[str]] = None,
+        include_module_registry: bool = True, include_arg: bool = True
     ) -> str:
         """Generate custom state class for project
 
@@ -30,6 +32,8 @@ class ProjectStateGenerator:
             globals: Set of global variable names used across project
             modules: Set of module names in the project
             library_modules: Set of library modules used (io, math, etc.)
+            include_module_registry: If False, skip module registry (for single-file mode)
+            include_arg: If False, skip arg member (for library mode)
 
         Returns:
             C++ struct definition as string
@@ -72,10 +76,11 @@ class ProjectStateGenerator:
             f"struct {state_type} {{",
         ]
 
-        # Add special globals (arg, _G)
-        global_lines = self._generate_special_globals(globals)
-        if global_lines:
-            lines.extend(["    // Special globals"] + global_lines + [""])
+        # Add special globals (arg, _G) - only if include_arg
+        if include_arg:
+            global_lines = self._generate_special_globals(globals)
+            if global_lines:
+                lines.extend(["    // Special globals"] + global_lines + [""])
 
         # Add standalone function pointers (print, tonumber)
         standalone_lines = self._generate_standalone_functions()
@@ -88,8 +93,9 @@ class ProjectStateGenerator:
             if lib_lines:
                 lines.extend(lib_lines + [""])
 
-        # Add module registry
-        lines.extend(self._generate_module_registry(modules))
+        # Add module registry (only for project mode with multiple modules)
+        if include_module_registry and modules:
+            lines.extend(self._generate_module_registry(modules))
 
         lines.extend(
             [
@@ -132,11 +138,12 @@ class ProjectStateGenerator:
         for func_name in sorted(standalone_funcs):
             sig = self.registry.get_function_signature(func_name)
             if sig:
-                # Format: return_type(*func_name)(params);
-                if "(*" in sig.cpp_signature:
-                    before_star, after_star = sig.cpp_signature.split("(*")
-                    param_part = after_star[1:]  # Skip the opening ")"
-                    declaration = f"    {before_star}(*{func_name}){param_part};"
+                # Parse cpp_signature and reformat with function name
+                match = re.search(r'\(\*\)\((.*)\)', sig.cpp_signature)
+                if match:
+                    param_type = match.group(1)
+                    return_type = sig.cpp_signature.split('(*)')[0]
+                    declaration = f"    {return_type}(*{func_name})({param_type});"
                 else:
                     declaration = f"    {sig.cpp_signature} {func_name};"
                 lines.append(declaration)
@@ -167,12 +174,14 @@ class ProjectStateGenerator:
                 # Format: return_type(*func_name)(params); for struct members
                 # Parse cpp_signature which is like "void(*)(const std::vector<luaValue>&)"
                 # and reformat to "void(*func_name)(const std::vector<luaValue>&);"
-                if "(*" in sig.cpp_signature:
-                    # Split at "(*" and reformat with function name
-                    before_star, after_star = sig.cpp_signature.split("(*")
-                    # after_star is like ")(const std::vector<luaValue>&)", skip the opening ")"
-                    param_part = after_star[1:]  # Skip the opening ")"
-                    declaration = f"        {before_star}(*{func_name})({param_part};"
+                # Parse cpp_signature which is like "void(*)(const std::vector<luaValue>&)"
+                # and reformat to "void(*func_name)(const std::vector<luaValue>&);"
+                # Use regex to extract parameter type
+                match = re.search(r'\(\*\)\((.*)\)', sig.cpp_signature)
+                if match:
+                    param_type = match.group(1)
+                    return_type = sig.cpp_signature.split('(*)')[0]
+                    declaration = f"        {return_type}(*{func_name})({param_type});"
                 else:
                     # Fallback: just use as-is (shouldn't happen)
                     declaration = f"        {sig.cpp_signature} {func_name};"

@@ -191,7 +191,7 @@ class ScopeManager:
 
         Args:
             name: Variable name
-            **kwargs: Additional symbol properties
+            **kwargs: Additional symbol properties (including inferred_type)
 
         Returns:
             Created symbol

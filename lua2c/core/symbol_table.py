@@ -20,16 +20,19 @@ class SymbolTable:
         self._scope_manager = scope_manager
         self._all_symbols: List[Symbol] = []
 
-    def add_local(self, name: str, **kwargs) -> Symbol:
+    def add_local(self, name: str, inferred_type: Optional['Type'] = None, **kwargs) -> Symbol:
         """Add a local variable
 
         Args:
             name: Variable name
+            inferred_type: Optional inferred type information
             **kwargs: Additional symbol properties
 
         Returns:
             Created symbol
         """
+        if inferred_type is not None:
+            kwargs['inferred_type'] = inferred_type
         symbol = self._scope_manager.define_local(name, **kwargs)
         self._all_symbols.append(symbol)
         return symbol
