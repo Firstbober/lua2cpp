@@ -4,10 +4,13 @@ Generates ONE custom state class per project with typed members.
 Replaces generic luaState with per-project typed state.
 """
 
-from typing import Set, Dict, List, Optional, Any
+from typing import Set, Dict, List, Optional, Any, TYPE_CHECKING
 import re
 from pathlib import Path
 from lua2c.core.global_type_registry import GlobalTypeRegistry
+
+if TYPE_CHECKING:
+    from lua2c.core.type_system import Type
 
 
 class ProjectStateGenerator:
@@ -24,7 +27,8 @@ class ProjectStateGenerator:
 
     def generate_state_class(
         self, globals: Set[str], modules: Set[str], library_modules: Optional[Set[str]] = None,
-        include_module_registry: bool = True, include_arg: bool = True
+        include_module_registry: bool = True, include_arg: bool = True,
+        inferred_types: Optional[Dict[str, 'Type']] = None
     ) -> str:
         """Generate custom state class for project
 
@@ -34,6 +38,7 @@ class ProjectStateGenerator:
             library_modules: Set of library modules used (io, math, etc.)
             include_module_registry: If False, skip module registry (for single-file mode)
             include_arg: If False, skip arg member (for library mode)
+            inferred_types: Optional dict of global name -> inferred Type
 
         Returns:
             C++ struct definition as string
@@ -78,7 +83,7 @@ class ProjectStateGenerator:
 
         # Add special globals (arg, _G) - only if include_arg
         if include_arg:
-            global_lines = self._generate_special_globals(globals)
+            global_lines = self._generate_special_globals(globals, inferred_types)
             if global_lines:
                 lines.extend(["    // Special globals"] + global_lines + [""])
 
@@ -106,21 +111,41 @@ class ProjectStateGenerator:
 
         return "\n".join(lines)
 
-    def _generate_special_globals(self, used_globals: Set[str]) -> List[str]:
+    def _generate_special_globals(
+        self, used_globals: Set[str], inferred_types: Optional[Dict[str, 'Type']] = None
+    ) -> List[str]:
         """Generate C++ members for special globals
 
         Args:
             used_globals: Set of global names used in project
+            inferred_types: Optional dict of global name -> inferred Type
 
         Returns:
             List of C++ member declaration lines
         """
+        from lua2c.core.type_system import TypeKind
+
         lines = []
         for global_name in sorted(used_globals):
             c_type = self.registry.get_global_type(global_name)
             if c_type:
+                # Special global (arg, _G) - use registered type
                 comment = f"    // {global_name}"
                 declaration = f"    {c_type} {global_name};"
+                lines.append(comment)
+                lines.append(declaration)
+            else:
+                # User-defined global - use inferred type or default to luaValue
+                inferred_type = None
+                if inferred_types and global_name in inferred_types:
+                    inferred_type = inferred_types[global_name]
+
+                comment = f"    // {global_name} (user-defined)"
+                if inferred_type and inferred_type.can_specialize() and inferred_type.kind != TypeKind.TABLE:
+                    cpp_type = inferred_type.cpp_type()
+                    declaration = f"    {cpp_type} {global_name};"
+                else:
+                    declaration = f"    luaValue {global_name};"
                 lines.append(comment)
                 lines.append(declaration)
 

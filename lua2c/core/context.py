@@ -10,10 +10,13 @@ Maintains state during transpilation including:
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from lua2c.core.scope import ScopeManager
 from lua2c.core.symbol_table import SymbolTable
 from lua2c.core.optimization_logger import OptimizationLogger
+
+if TYPE_CHECKING:
+    from lua2c.core.type_system import Type
 
 
 class TranslationContext:
@@ -76,13 +79,14 @@ class TranslationContext:
         """
         self.symbol_table.add_local(name, inferred_type=inferred_type)
 
-    def define_global(self, name: str) -> None:
+    def define_global(self, name: str, inferred_type: Optional['Type'] = None) -> None:
         """Define a global variable
 
         Args:
             name: Variable name
+            inferred_type: Optional inferred type information
         """
-        self.symbol_table.add_global(name)
+        self.symbol_table.add_global(name, inferred_type=inferred_type)
 
     def define_function(self, name: str, is_global: bool = False) -> None:
         """Define a function

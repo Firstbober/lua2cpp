@@ -61,6 +61,17 @@ class StmtGenerator:
         """Generate code for assignment statement"""
         code_lines = []
         for i, (target, value) in enumerate(zip(stmt.targets, stmt.values)):
+            # Track global variables (Bug #3 fix)
+            if isinstance(target, astnodes.Name):
+                var_name = target.id
+                if not self.context.get_symbol_table().is_defined(var_name):
+                    # Variable not defined as local - it's a global
+                    inferred_type = None
+                    type_inferencer = self.context.get_type_inferencer()
+                    if type_inferencer:
+                        inferred_type = type_inferencer.get_type(var_name)
+                    self.context.define_global(var_name, inferred_type=inferred_type)
+            
             # Track array usage for table type inference (Fix 4)
             if isinstance(target, astnodes.Index) and isinstance(target.value, astnodes.Name):
                 table_name = target.value.id
@@ -281,10 +292,21 @@ class StmtGenerator:
 
         # Handle parameters
         param_names = []
+        type_inferencer = self.context.get_type_inferencer()
         for i, param in enumerate(stmt.args):
             if hasattr(param, 'id'):
-                self.context.define_parameter(param.id, i)
-                param_names.append(param.id)
+                param_name = param.id
+                self.context.define_parameter(param_name, i)
+                
+                # Bug #3 fix: Set inferred type on parameter symbol
+                if type_inferencer:
+                    inferred_type = type_inferencer.get_type(param_name)
+                    if inferred_type:
+                        symbol = self.context.resolve_symbol(param_name)
+                        if symbol:
+                            symbol.inferred_type = inferred_type
+                
+                param_names.append(param_name)
 
         # Generate function body
         body_statements = [self.generate(s) for s in stmt.body.body]
@@ -296,8 +318,11 @@ class StmtGenerator:
         body_code = "\n".join(body_statements)
         self.context.exit_function()
 
-        # Use auto for all parameters
-        params_str = ", ".join([f"auto& {p}" for p in param_names])
+        # Bug #3 fix: Use auto&& (forwarding reference) for parameters
+        # This allows binding to both lvalues and rvalues, enabling:
+        # - Reassignment (since && can be moved from)
+        # - Passing temporary expressions like M - 1 or 1
+        params_str = ", ".join([f"auto&& {p}" for p in param_names])
         state_type = self.context.get_state_type()
         if params_str:
             return f"auto {func_name}({state_type} state, {params_str}) {{\n    {body_code}\n}}"

@@ -109,10 +109,18 @@ class ExprGenerator:
         Returns:
             Inferred type
         """
+        # Check AST annotation first
         type_info = ASTAnnotationStore.get_type(expr)
-        if type_info is None:
-            return Type(TypeKind.UNKNOWN)
-        return type_info
+        if type_info is not None:
+            return type_info
+        
+        # Bug #3 fix: For Name nodes, check symbol's inferred_type
+        if isinstance(expr, astnodes.Name):
+            symbol = self.context.resolve_symbol(expr.id)
+            if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
+                return symbol.inferred_type
+        
+        return Type(TypeKind.UNKNOWN)
 
     def _set_expected_type(self, expr: astnodes.Node, type_hint: Optional[Type]) -> None:
         """Set expected type for an expression
@@ -554,36 +562,127 @@ class ExprGenerator:
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
         """Generate code for equality operation"""
+        # Check if operands are native types (Bug #3 fix for typed globals)
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        
+        # If at least one is NUMBER, set expected type for both to generate native literals
+        if (left_type and left_type.kind == TypeKind.NUMBER or
+            right_type and right_type.kind == TypeKind.NUMBER):
+            # Set expected type to generate native literals
+            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
+            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
+            left = self.generate_with_parentheses(expr.left, "EqToOp")
+            right = self.generate_with_parentheses(expr.right, "EqToOp")
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+            return f"luaValue({left} == {right})"
+        
         left = self.generate_with_parentheses(expr.left, "EqToOp")
         right = self.generate_with_parentheses(expr.right, "EqToOp")
         return f"luaValue({left} == {right})"
 
     def visit_NotEqToOp(self, expr: astnodes.NotEqToOp) -> str:
         """Generate code for inequality operation"""
+        # Check if operands are native types (Bug #3 fix)
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        
+        # If at least one is NUMBER, set expected type for both
+        if (left_type and left_type.kind == TypeKind.NUMBER or
+            right_type and right_type.kind == TypeKind.NUMBER):
+            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
+            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
+            left = self.generate_with_parentheses(expr.left, "NotEqToOp")
+            right = self.generate_with_parentheses(expr.right, "NotEqToOp")
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+            return f"luaValue({left} != {right})"
+        
         left = self.generate_with_parentheses(expr.left, "NotEqToOp")
         right = self.generate_with_parentheses(expr.right, "NotEqToOp")
         return f"luaValue({left} != {right})"
 
     def visit_LessThanOp(self, expr: astnodes.LessThanOp) -> str:
         """Generate code for less-than operation"""
+        # Check if operands are native types (Bug #3 fix)
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        
+        # If at least one is NUMBER, set expected type for both
+        if (left_type and left_type.kind == TypeKind.NUMBER or
+            right_type and right_type.kind == TypeKind.NUMBER):
+            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
+            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
+            left = self.generate_with_parentheses(expr.left, "LessThanOp")
+            right = self.generate_with_parentheses(expr.right, "LessThanOp")
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+            return f"luaValue({left} < {right})"
+        
         left = self.generate_with_parentheses(expr.left, "LessThanOp")
         right = self.generate_with_parentheses(expr.right, "LessThanOp")
         return f"luaValue({left} < {right})"
 
     def visit_LessOrEqThanOp(self, expr: astnodes.LessOrEqThanOp) -> str:
         """Generate code for less-than-or-equal operation"""
+        # Check if operands are native types (Bug #3 fix)
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        
+        # If at least one is NUMBER, set expected type for both
+        if (left_type and left_type.kind == TypeKind.NUMBER or
+            right_type and right_type.kind == TypeKind.NUMBER):
+            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
+            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
+            left = self.generate_with_parentheses(expr.left, "LessOrEqThanOp")
+            right = self.generate_with_parentheses(expr.right, "LessOrEqThanOp")
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+            return f"luaValue({left} <= {right})"
+        
         left = self.generate_with_parentheses(expr.left, "LessOrEqThanOp")
         right = self.generate_with_parentheses(expr.right, "LessOrEqThanOp")
         return f"luaValue({left} <= {right})"
 
     def visit_GreaterThanOp(self, expr: astnodes.GreaterThanOp) -> str:
         """Generate code for greater-than operation"""
+        # Check if operands are native types (Bug #3 fix)
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        
+        # If at least one is NUMBER, set expected type for both
+        if (left_type and left_type.kind == TypeKind.NUMBER or
+            right_type and right_type.kind == TypeKind.NUMBER):
+            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
+            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
+            left = self.generate_with_parentheses(expr.left, "GreaterThanOp")
+            right = self.generate_with_parentheses(expr.right, "GreaterThanOp")
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+            return f"luaValue({left} > {right})"
+        
         left = self.generate_with_parentheses(expr.left, "GreaterThanOp")
         right = self.generate_with_parentheses(expr.right, "GreaterThanOp")
         return f"luaValue({left} > {right})"
 
     def visit_GreaterOrEqThanOp(self, expr: astnodes.GreaterOrEqThanOp) -> str:
         """Generate code for greater-than-or-equal operation"""
+        # Check if operands are native types (Bug #3 fix)
+        left_type = self._get_inferred_expression_type(expr.left)
+        right_type = self._get_inferred_expression_type(expr.right)
+        
+        # If at least one is NUMBER, set expected type for both
+        if (left_type and left_type.kind == TypeKind.NUMBER or
+            right_type and right_type.kind == TypeKind.NUMBER):
+            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
+            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
+            left = self.generate_with_parentheses(expr.left, "GreaterOrEqThanOp")
+            right = self.generate_with_parentheses(expr.right, "GreaterOrEqThanOp")
+            self._clear_expected_type(expr.left)
+            self._clear_expected_type(expr.right)
+            return f"luaValue({left} >= {right})"
+        
         left = self.generate_with_parentheses(expr.left, "GreaterOrEqThanOp")
         right = self.generate_with_parentheses(expr.right, "GreaterOrEqThanOp")
         return f"luaValue({left} >= {right})"
@@ -716,13 +815,26 @@ class ExprGenerator:
                 wrapped_args = []
                 temp_decls = []
                 temp_counter = [0]
-
+                
+                # Bug #3 fix: Set expected types for literals to generate native literals
                 for arg in expr.args:
+                    # For literal arguments, set expected type to NUMBER
+                    # This allows them to match typed parameters (double)
+                    is_literal = isinstance(arg, astnodes.Number)
+                    if is_literal:
+                        self._set_expected_type(arg, Type(TypeKind.NUMBER))
+                    
                     arg_code = self.generate(arg)
+                    self._clear_expected_type(arg)
+                    
                     if self._is_temporary_expression(arg):
                         temp_name = f"_l2c_tmp_arg_{temp_counter[0]}"
-                        temp_counter[0] += 1
-                        temp_decls.append(f"auto {temp_name} = {arg_code}")
+                        temp_counter[0] +=1
+                        # Bug #3 fix: Use explicit type for literals to match parameter types
+                        if is_literal:
+                            temp_decls.append(f"double {temp_name} = {arg_code}")
+                        else:
+                            temp_decls.append(f"auto {temp_name} = {arg_code}")
                         wrapped_args.append(temp_name)
                     else:
                         wrapped_args.append(arg_code)
@@ -743,12 +855,26 @@ class ExprGenerator:
             args = []
             param_types = sig.param_types if sig.param_types else []
             
+            # Bug #3 fix: Pre-process arguments to handle vector parameters
+            # If we encounter a vector parameter type, collect all remaining args into it
+            vector_args = []
+            result_args = []
+            in_vector_mode = False
+            
             for i, arg in enumerate(expr.args):
-                arg_code = self.generate(arg)
+                param_type = param_types[i] if i < len(param_types) else None
                 
-                # Check if we should wrap this argument based on expected parameter type
-                if i < len(param_types):
-                    param_type = param_types[i]
+                if param_type == "const std::vector<luaValue>&" or param_type == "std::vector<luaValue>":
+                    # Enter vector mode: collect all remaining args
+                    in_vector_mode = True
+                    vector_args.append(arg)
+                elif in_vector_mode:
+                    # Already in vector mode, continue collecting
+                    vector_args.append(arg)
+                else:
+                    # Regular parameter, process normally
+                    arg_code = self.generate(arg)
+                    
                     # Don't wrap if parameter type is std::string or double
                     if param_type in ["const std::string&", "std::string", "double", "const double&"]:
                         # If arg_code is luaValue(...), unwrap it
@@ -758,45 +884,42 @@ class ExprGenerator:
                             # Check if inner is a literal (starts with " or is a number)
                             if inner.startswith('"') or (inner.replace('.', '').replace('-', '').replace('+', '').isdigit()):
                                 # Just use the literal as-is, no .as_string() or .as_number() needed
-                                args.append(inner)
+                                result_args.append(inner)
                             else:
                                 # It's an expression, unwrap it
                                 if param_type in ["const std::string&", "std::string"]:
-                                    args.append(f"{inner}.as_string()")
+                                    result_args.append(f"{inner}.as_string()")
                                 elif param_type in ["double", "const double&"]:
-                                    args.append(f"{inner}.as_number()")
+                                    result_args.append(f"{inner}.as_number()")
                                 else:
-                                    args.append(inner)
+                                    result_args.append(inner)
                         else:
-                            args.append(arg_code)
-                    elif param_type == "const std::vector<luaValue>&" or param_type == "std::vector<luaValue>":
-                        # Wrap in luaValue, then wrap in {} for vector initialization
-                        type_hint = self._get_symbol_type_from_context(arg)
-                        arg_returns_non_lua = self._returns_non_lua_value(arg)
-                        if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
-                            args.append(f"luaValue({arg_code})")
-                        else:
-                            args.append(arg_code)
-                        # Mark that this arg should be wrapped in {}
-                        args[-1] = f"{{{args[-1]}}}"
+                            result_args.append(arg_code)
                     else:
                         # For luaValue parameters, wrap in luaValue
                         type_hint = self._get_symbol_type_from_context(arg)
                         arg_returns_non_lua = self._returns_non_lua_value(arg)
                         if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
-                            args.append(f"luaValue({arg_code})")
+                            result_args.append(f"luaValue({arg_code})")
                         else:
-                            args.append(arg_code)
-                else:
-                    # No more parameter types specified, use default wrapping logic
+                            result_args.append(arg_code)
+            
+            # If we collected vector args, wrap them together
+            if vector_args:
+                vector_arg_codes = []
+                for arg in vector_args:
+                    arg_code = self.generate(arg)
                     type_hint = self._get_symbol_type_from_context(arg)
                     arg_returns_non_lua = self._returns_non_lua_value(arg)
                     if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
-                        args.append(f"luaValue({arg_code})")
+                        vector_arg_codes.append(f"luaValue({arg_code})")
                     else:
-                        args.append(arg_code)
+                        vector_arg_codes.append(arg_code)
+                # Combine into single vector argument
+                # Bug #3 fix: Use {{ to represent literal { in string
+                result_args.append(f"std::vector<luaValue>{{{{{', '.join(vector_arg_codes)}}}}}")
             
-            args_str = ", ".join(args)
+            args_str = ", ".join(result_args)
             return f"({func})({args_str})"
         else:
             # Default behavior: wrap all arguments in luaValue

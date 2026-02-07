@@ -97,6 +97,63 @@ def _collect_globals_from_tree(tree) -> Set[str]:
     return globals
 
 
+def _collect_readonly_globals(tree, context: TranslationContext) -> Set[str]:
+    """Collect globals that are referenced but never assigned
+
+    Args:
+        tree: Parsed Lua AST
+        context: Translation context (to check if names are locals)
+
+    Returns:
+        Set of read-only global names
+    """
+    from luaparser import astnodes
+    from lua2c.core.global_type_registry import GlobalTypeRegistry
+
+    globals = set()
+
+    def visit(node):
+        if isinstance(node, astnodes.Name):
+            name = node.id
+            # Exclude library functions and special globals
+            if not (GlobalTypeRegistry.is_library_function(name) or
+                    GlobalTypeRegistry.get_global_type(name)):
+                # If not defined as local, it's a global
+                if not context.get_symbol_table().is_defined(name):
+                    globals.add(name)
+        elif hasattr(node, 'body'):
+            for child in (node.body if isinstance(node.body, list) else [node.body]):
+                visit(child)
+        elif hasattr(node, 'left'):
+            visit(node.left)
+        elif hasattr(node, 'right'):
+            visit(node.right)
+        elif hasattr(node, 'expr'):
+            visit(node.expr)
+        elif hasattr(node, 'init'):
+            visit(node.init)
+        elif hasattr(node, 'value'):
+            visit(node.value)
+        elif hasattr(node, 'args'):
+            for arg in node.args:
+                visit(arg)
+        elif hasattr(node, 'idx'):
+            visit(node.idx)
+            visit(node.value)
+        elif hasattr(node, 'operand'):
+            visit(node.operand)
+        elif hasattr(node, 'test'):
+            visit(node.test)
+        elif hasattr(node, 'orelse'):
+            orelse = node.orelse
+            if orelse:
+                for child in (orelse if isinstance(orelse, list) else [orelse]):
+                    visit(child)
+
+    visit(tree)
+    return globals
+
+
 def _collect_used_libraries(tree) -> Set[str]:
     """Collect used standard libraries from AST
 
@@ -223,13 +280,26 @@ def transpile_single_file(
         traceback.print_exc()
         sys.exit(1)
 
-    # Collect globals and used libraries
-    globals = _collect_globals_from_tree(tree)
+    # Collect assigned globals from symbol table (Bug #3 fix)
+    assigned_globals = {s.name for s in context.get_symbol_table().get_global_symbols()}
+    
+    # Collect read-only globals (referenced but never assigned)
+    readonly_globals = _collect_readonly_globals(tree, context)
+    
+    # Combine both sets
+    globals = assigned_globals | readonly_globals
+    
     used_libs = _collect_used_libraries(tree)
     
     # Manual check: if source contains 'arg', add to globals
     if 'arg' in source:
         globals.add('arg')
+
+    # Get inferred types for globals
+    inferred_types = {}
+    type_inferencer = context.get_type_inferencer()
+    if type_inferencer:
+        inferred_types = type_inferencer.inferred_types
 
     # Generate state header
     state_gen = ProjectStateGenerator(module_name)
@@ -239,6 +309,7 @@ def transpile_single_file(
         library_modules=used_libs,
         include_module_registry=False,
         include_arg=True,  # Always include arg if used, regardless of mode
+        inferred_types=inferred_types,  # Pass inferred types (Bug #3 fix)
     )
 
     # Generate main (if not library mode)
