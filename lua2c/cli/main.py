@@ -196,9 +196,9 @@ def transpile_single_file(
 
     # Determine module name
     if output_name:
-        module_name = output_name
+        module_name = output_name.replace('-', '_')
     else:
-        module_name = input_file.stem
+        module_name = input_file.stem.replace('-', '_')
 
     # Setup context
     context = TranslationContext(input_file.parent, str(input_file.parent))
@@ -595,6 +595,7 @@ Examples:
         else:
             # Single-file mode
             output_name = args.output if args.output else input_file.stem
+            output_name = output_name.replace('-', '_')
             results = transpile_single_file(
                 input_file=input_file,
                 output_name=output_name,
