@@ -4,12 +4,12 @@ Translates Lua expressions to C++ code.
 Handles all expression types: literals, variables, operations, calls, etc.
 """
 
-from typing import Optional
+from typing import Optional, List
 from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind, TableTypeInfo
 from lua2c.core.type_conversion import TypeConverter
 from lua2c.core.ast_annotation import ASTAnnotationStore
-from lua2c.core.global_type_registry import GlobalTypeRegistry
+from lua2c.core.global_type_registry import GlobalTypeRegistry, FunctionSignature
 from lua2c.generators.naming import NamingScheme
 
 try:
@@ -736,19 +736,82 @@ class ExprGenerator:
                     return f"{func}(state, {args_str})"
 
         # Global/library function: func({arg1, arg2, ...})
-        # Need to wrap arguments in luaValue
-        args = []
-        for arg in expr.args:
-            arg_code = self.generate(arg)
-            type_hint = self._get_symbol_type_from_context(arg)
-            arg_returns_non_lua = self._returns_non_lua_value(arg)
-            if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
-                # Need to convert to luaValue for library functions
-                args.append(f"luaValue({arg_code})")
-            else:
-                args.append(arg_code)
-        args_str = ", ".join(args)
-        return f"({func})({{{args_str}}})"
+        # Check if this is a library function with special signature
+        sig = self._get_library_function_signature(expr)
+        
+        if sig:
+            args = []
+            param_types = sig.param_types if sig.param_types else []
+            
+            for i, arg in enumerate(expr.args):
+                arg_code = self.generate(arg)
+                
+                # Check if we should wrap this argument based on expected parameter type
+                if i < len(param_types):
+                    param_type = param_types[i]
+                    # Don't wrap if parameter type is std::string or double
+                    if param_type in ["const std::string&", "std::string", "double", "const double&"]:
+                        # If arg_code is luaValue(...), unwrap it
+                        if arg_code.startswith("luaValue(") and arg_code.endswith(")"):
+                            # Extract the inner expression
+                            inner = arg_code[9:-1]  # Remove "luaValue(" and ")"
+                            # Check if inner is a literal (starts with " or is a number)
+                            if inner.startswith('"') or (inner.replace('.', '').replace('-', '').replace('+', '').isdigit()):
+                                # Just use the literal as-is, no .as_string() or .as_number() needed
+                                args.append(inner)
+                            else:
+                                # It's an expression, unwrap it
+                                if param_type in ["const std::string&", "std::string"]:
+                                    args.append(f"{inner}.as_string()")
+                                elif param_type in ["double", "const double&"]:
+                                    args.append(f"{inner}.as_number()")
+                                else:
+                                    args.append(inner)
+                        else:
+                            args.append(arg_code)
+                    elif param_type == "const std::vector<luaValue>&" or param_type == "std::vector<luaValue>":
+                        # Wrap in luaValue, then wrap in {} for vector initialization
+                        type_hint = self._get_symbol_type_from_context(arg)
+                        arg_returns_non_lua = self._returns_non_lua_value(arg)
+                        if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
+                            args.append(f"luaValue({arg_code})")
+                        else:
+                            args.append(arg_code)
+                        # Mark that this arg should be wrapped in {}
+                        args[-1] = f"{{{args[-1]}}}"
+                    else:
+                        # For luaValue parameters, wrap in luaValue
+                        type_hint = self._get_symbol_type_from_context(arg)
+                        arg_returns_non_lua = self._returns_non_lua_value(arg)
+                        if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
+                            args.append(f"luaValue({arg_code})")
+                        else:
+                            args.append(arg_code)
+                else:
+                    # No more parameter types specified, use default wrapping logic
+                    type_hint = self._get_symbol_type_from_context(arg)
+                    arg_returns_non_lua = self._returns_non_lua_value(arg)
+                    if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
+                        args.append(f"luaValue({arg_code})")
+                    else:
+                        args.append(arg_code)
+            
+            args_str = ", ".join(args)
+            return f"({func})({args_str})"
+        else:
+            # Default behavior: wrap all arguments in luaValue
+            args = []
+            for arg in expr.args:
+                arg_code = self.generate(arg)
+                type_hint = self._get_symbol_type_from_context(arg)
+                arg_returns_non_lua = self._returns_non_lua_value(arg)
+                if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
+                    # Need to convert to luaValue for library functions
+                    args.append(f"luaValue({arg_code})")
+                else:
+                    args.append(arg_code)
+            args_str = ", ".join(args)
+            return f"({func})({{{args_str}}})"
 
     def visit_Invoke(self, expr: astnodes.Invoke) -> str:
         """Generate code for method invocation (obj:method(args))
@@ -1000,14 +1063,45 @@ class ExprGenerator:
         Returns:
             True if expression returns non-luaValue type
         """
-        if isinstance(expr, astnodes.Call) and isinstance(expr.func, astnodes.Name):
+        if not isinstance(expr, astnodes.Call):
+            return False
+        
+        if isinstance(expr.func, astnodes.Name):
             func_name = expr.func.id
-            # Check GlobalTypeRegistry for return type
-            from lua2c.core.global_type_registry import GlobalTypeRegistry
             sig = GlobalTypeRegistry.get_function_signature(func_name)
             if sig and sig.return_type != "luaValue":
                 return True
+        elif isinstance(expr.func, astnodes.Index):
+            if isinstance(expr.func.value, astnodes.Name) and isinstance(expr.func.idx, astnodes.Name):
+                module_name = expr.func.value.id
+                func_name = expr.func.idx.id
+                func_path = f"{module_name}.{func_name}"
+                sig = GlobalTypeRegistry.get_function_signature(func_path)
+                if sig and sig.return_type != "luaValue":
+                    return True
+        
         return False
+
+    def _get_library_function_signature(self, expr: astnodes.Call) -> Optional[FunctionSignature]:
+        """Get the function signature for a library function call
+
+        Args:
+            expr: Call expression node
+
+        Returns:
+            FunctionSignature or None if not a library function
+        """
+        if isinstance(expr.func, astnodes.Index):
+            if isinstance(expr.func.value, astnodes.Name) and isinstance(expr.func.idx, astnodes.Name):
+                module_name = expr.func.value.id
+                func_name = expr.func.idx.id
+                func_path = f"{module_name}.{func_name}"
+                return GlobalTypeRegistry.get_function_signature(func_path)
+        elif isinstance(expr.func, astnodes.Name):
+            func_name = expr.func.id
+            return GlobalTypeRegistry.get_function_signature(func_name)
+        
+        return None
 
     def _infer_array_element_type(self, expr: astnodes.Table) -> Optional[Type]:
         """Infer element type for array table"""

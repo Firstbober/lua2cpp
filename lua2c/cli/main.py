@@ -238,7 +238,7 @@ def transpile_single_file(
         modules=set(),
         library_modules=used_libs,
         include_module_registry=False,
-        include_arg=not as_library,
+        include_arg=True,  # Always include arg if used, regardless of mode
     )
 
     # Generate main (if not library mode)

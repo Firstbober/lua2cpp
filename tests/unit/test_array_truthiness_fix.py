@@ -140,7 +140,6 @@ class TestArrayTruthiness:
         assert sig.return_type != "luaValue"
         print(f"string.format signature: {sig}")
 
-    @pytest.mark.xfail(reason="io.write with string.format result needs wrapping - TODO: Fix in future session")
     def test_io_write_with_string_format(self, context):
         """Test that io.write(string.format(...)) handles std::string return type
         
@@ -148,8 +147,11 @@ class TestArrayTruthiness:
         string.format returns std::string, which needs to be wrapped in luaValue
         before passing to io.write.
         
-        Currently fails because string.format result is not wrapped.
-        This test is marked as xfail (expected to fail) for now.
+        The transpiler now correctly:
+        1. Detects that string.format has signature std::string(const std::string&, const std::vector<luaValue>&)
+        2. Passes format string as-is (not wrapped in luaValue)
+        3. Wraps format arguments in luaValue and wraps them in {} for vector initialization
+        4. Wraps the entire string.format result in luaValue for io.write
         """
         expr_gen = ExprGenerator(context)
         tree = ast.parse('io.write(string.format("%0.9f\\n", math.sqrt(1.5)))')
@@ -163,8 +165,10 @@ class TestArrayTruthiness:
         assert "io.write" in result or "state->io.write" in result
         
         # It should wrap string.format result in luaValue
-        # TODO: This assertion will fail until we fix the wrapping
-        # assert "luaValue((" in result or "luaValue (" in result
+        assert "luaValue(" in result
+        
+        # string.format should receive unwrapped format string and vector-wrapped args
+        assert '("%0.9f\\n"' in result  # Format string not wrapped in luaValue
+        assert "{luaValue(" in result    # Arguments wrapped in luaValue and {}
         
         print(f"Generated code: {result}")
-        print("Note: string.format result should be wrapped in luaValue")

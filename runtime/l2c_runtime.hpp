@@ -93,19 +93,22 @@ inline std::string string_format(const std::string& fmt, const std::vector<luaVa
             }
             if (i < fmt.size()) {
                 char spec = fmt[i++];
-                if (pos < static_cast<int>(args.size())) {
+                if (pos <= static_cast<int>(args.size())) {
                     switch (spec) {
                         case 'f': {
-                            double val = args[pos++].as_number();
+                            double val = args[pos - 1].as_number();
+                            pos++;
                             int actual_precision = (precision >= 0) ? precision : 6;
                             result << std::fixed << std::setprecision(actual_precision) << val;
                             break;
                         }
                         case 'd':
-                            result << static_cast<int>(args[pos++].as_number());
+                            result << static_cast<int>(args[pos - 1].as_number());
+                            pos++;
                             break;
                         case 's':
-                            result << args[pos++].as_string();
+                            result << args[pos - 1].as_string();
+                            pos++;
                             break;
                         case '\n':
                             result << '\n';
