@@ -1,15 +1,15 @@
 #pragma once
-
+ 
 #include <deque>
 #include <cmath>
 #include <stdexcept>
 #include <limits>
-
+ 
 template<typename T>
 class luaArray {
 private:
     std::deque<T> data_;
-
+ 
 public:
     luaArray() = default;
     
@@ -17,10 +17,29 @@ public:
     
     luaArray(std::initializer_list<T> init) : data_(init) {}
     
+    // Get element at index - returns value (not reference) to avoid undefined behavior
+    T get(size_t index) const {
+        if (index >= data_.size()) {
+            return T{};  // Return default-constructed value
+        }
+        return data_[index];
+    }
+    
+    // Set element at index - auto-grows array with 10% buffer
+    void set(size_t index, const T& value) {
+        if (index >= data_.size()) {
+            size_t new_size = static_cast<size_t>(std::max(index + 1,
+                                          static_cast<size_t>(data_.size() * 1.1)));
+            data_.resize(new_size, T{});
+        }
+        data_[index] = value;
+    }
+    
     // Bounds-checked write access - auto-grows array with 10% buffer
+    // Deprecated: Use set() instead for clarity
     T& operator[](size_t index) {
         if (index >= data_.size()) {
-            size_t new_size = static_cast<size_t>(std::max(index + 1, 
+            size_t new_size = static_cast<size_t>(std::max(index + 1,
                                           static_cast<size_t>(data_.size() * 1.1)));
             data_.resize(new_size, T{});
         }
@@ -28,10 +47,10 @@ public:
     }
     
     // Bounds-checked read access - returns default value for out-of-bounds
-    const T& operator[](size_t index) const {
+    // Deprecated: Use get() instead for clarity
+    T operator[](size_t index) const {
         if (index >= data_.size()) {
-            static const T default_value = T{};
-            return default_value;
+            return T{};
         }
         return data_[index];
     }
@@ -46,23 +65,3 @@ public:
         return index < data_.size();
     }
 };
-
-// Specialization for double to return NAN instead of 0.0 for out-of-bounds
-template<>
-inline const double& luaArray<double>::operator[](size_t index) const {
-    if (index >= data_.size()) {
-        static const double nan_value = std::numeric_limits<double>::quiet_NaN();
-        return nan_value;
-    }
-    return data_[index];
-}
-
-// Specialization for std::string to return empty string for out-of-bounds
-template<>
-inline const std::string& luaArray<std::string>::operator[](size_t index) const {
-    if (index >= data_.size()) {
-        static const std::string empty_string;
-        return empty_string;
-    }
-    return data_[index];
-}

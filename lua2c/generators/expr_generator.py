@@ -698,19 +698,19 @@ class ExprGenerator:
             lib_name = expr.value.id
             func_name = expr.idx.id
             return f'state->get_global("{lib_name}.{func_name}")'
-        
+
         table = self.generate(expr.value)
-        
+
         # Check if table is a typed array
         if isinstance(expr.value, astnodes.Name):
             table_name = expr.value.id
             table_info = self._get_table_info_for_symbol(table_name)
-            
+
             if table_info and table_info.is_array:
-                # Array access - convert Lua's 1-based indexing to C++'s 0-based indexing
+                # Array read - use get() method, convert Lua's 1-based indexing to C++'s 0-based indexing
                 key = self.generate(expr.idx)
-                return f"({table})[{key} - 1]"
-        
+                return f"({table}).get({key} - 1)"
+
         # Default: luaValue indexing
         key = self.generate(expr.idx)
         return f"({table})[{key}]"

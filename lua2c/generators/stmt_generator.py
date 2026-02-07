@@ -70,53 +70,80 @@ class StmtGenerator:
                     if table_info:
                         # Mark this as an array table
                         table_info.is_array = True
-            
+
             # Check if target is typed array assignment
-            target_code = self._handle_typed_array_assignment(target, value)
-            
-            # Set expected type for value if assigning to typed array element
-            element_type = None
-            if isinstance(target, astnodes.Index) and isinstance(target.value, astnodes.Name):
-                table_name = target.value.id
-                type_inferencer = self.context.get_type_inferencer()
-                if type_inferencer:
-                    table_info = type_inferencer.get_table_info(table_name)
-                    if table_info and table_info.is_array and table_info.value_type:
-                        element_type = table_info.value_type
-            
-            if element_type:
-                self.expr_gen._set_expected_type(value, element_type)
-                value_code = self.expr_gen.generate(value)
-                self.expr_gen._clear_expected_type(value)
+            # This may return a complete statement for typed array writes
+            assignment_code = self._handle_typed_array_assignment(target, value)
+
+            # Check if it's a complete set() call (typed array write)
+            if assignment_code and '.set(' in assignment_code:
+                # _handle_typed_array_assignment generated the full assignment statement
+                code_lines.append(assignment_code + ';')
             else:
-                value_code = self.expr_gen.generate(value)
-            
-            code_lines.append(f"{target_code} = {value_code};")
-        
+                # Regular assignment: target_code = value_code;
+                target_code = assignment_code if assignment_code else self.expr_gen.generate(target)
+
+                # Set expected type for value if assigning to typed array element
+                element_type = None
+                if isinstance(target, astnodes.Index) and isinstance(target.value, astnodes.Name):
+                    table_name = target.value.id
+                    type_inferencer = self.context.get_type_inferencer()
+                    if type_inferencer:
+                        table_info = type_inferencer.get_table_info(table_name)
+                        if table_info and table_info.is_array and table_info.value_type:
+                            element_type = table_info.value_type
+
+                if element_type:
+                    self.expr_gen._set_expected_type(value, element_type)
+                    value_code = self.expr_gen.generate(value)
+                    self.expr_gen._clear_expected_type(value)
+                else:
+                    value_code = self.expr_gen.generate(value)
+
+                code_lines.append(f"{target_code} = {value_code};")
+
         return "\n".join(code_lines)
     
     def _handle_typed_array_assignment(self, target: astnodes.Node, value: astnodes.Node) -> str:
-        """Handle assignment to typed array element, adjusting for 1-based indexing"""
+        """Handle assignment to typed array element, adjusting for 1-based indexing
+
+        For typed arrays like luaArray<double>, this generates:
+            array.set(index, value)
+        instead of:
+            array[index] = value
+        to avoid undefined behavior with const references.
+        """
         if not isinstance(target, astnodes.Index):
             return self.expr_gen.generate(target)
-        
+
         # Check if table is a typed array
         if isinstance(target.value, astnodes.Name):
             table_name = target.value.id
             type_inferencer = self.context.get_type_inferencer()
             if not type_inferencer:
                 return self.expr_gen.generate(target)
-            
+
             table_info = type_inferencer.get_table_info(table_name)
             if not table_info or not table_info.is_array:
                 return self.expr_gen.generate(target)
-            
+
             # It's a typed array - set expected type to generate native int key, then adjust for 1-based Lua to 0-based C++
             self.expr_gen._set_expected_type(target.idx, Type(TypeKind.NUMBER))
             idx_code = self.expr_gen.generate(target.idx)
             self.expr_gen._clear_expected_type(target.idx)
-            return f"({self.expr_gen.generate(target.value)})[{idx_code} - 1]"
-        
+
+            # Get element type for value expression
+            element_type = table_info.value_type if table_info.value_type else None
+            if element_type:
+                self.expr_gen._set_expected_type(value, element_type)
+                value_code = self.expr_gen.generate(value)
+                self.expr_gen._clear_expected_type(value)
+            else:
+                value_code = self.expr_gen.generate(value)
+
+            # Use set() method for typed arrays
+            return f"({self.expr_gen.generate(target.value)}).set({idx_code} - 1, {value_code})"
+
         return self.expr_gen.generate(target)
 
     def visit_LocalAssign(self, stmt: astnodes.LocalAssign) -> str:
