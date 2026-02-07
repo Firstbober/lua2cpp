@@ -601,18 +601,35 @@ class ExprGenerator:
         C++: luaValue(left.is_truthy() ? right : left)
 
         Note: This uses a lambda to avoid double evaluation of expressions with side effects.
+        Special case: if left is always truthy (e.g., arrays), simplify to just right.
+        Special case: if left returns non-luaValue type, wrap it in luaValue before is_truthy(),
+        then unwrap back to original type if needed.
         """
         left_has_side_effects = self._has_side_effects(expr.left)
         right_has_side_effects = self._has_side_effects(expr.right)
+        left_returns_non_lua = self._returns_non_lua_value(expr.left)
 
-        if left_has_side_effects or right_has_side_effects:
+        if self._is_always_truthy(expr.left):
+            if left_has_side_effects or right_has_side_effects:
+                right = self.generate(expr.right)
+                return f"[&]() {{ return {right}; }}()"
+            else:
+                right = self.generate(expr.right)
+                return right
+        elif left_has_side_effects or right_has_side_effects:
             left = self.generate(expr.left)
             right = self.generate(expr.right)
-            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left); }}()"
+            if left_returns_non_lua:
+                return f"[&]() {{ auto _l2c_tmp_left = luaValue({left}); auto _l2c_tmp_right = {right}; auto _l2c_result = luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left); return _l2c_result.as_number(); }}()"
+            else:
+                return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left); }}()"
         else:
             left = self.generate(expr.left)
             right = self.generate(expr.right)
-            return f"luaValue(({left}).is_truthy() ? ({right}) : ({left}))"
+            if left_returns_non_lua:
+                return f"luaValue(luaValue({left}).is_truthy() ? ({right}) : ({left})).as_number()"
+            else:
+                return f"luaValue(({left}).is_truthy() ? ({right}) : ({left}))"
 
     def visit_OrLoOp(self, expr: astnodes.OrLoOp) -> str:
         """Generate code for logical or (short-circuit)
@@ -621,18 +638,35 @@ class ExprGenerator:
         C++: luaValue(left.is_truthy() ? left : right)
 
         Note: This uses a lambda to avoid double evaluation of expressions with side effects.
+        Special case: if left is always truthy (e.g., arrays), simplify to just left.
+        Special case: if left returns non-luaValue type, wrap it in luaValue before is_truthy(),
+        then unwrap back to original type if needed.
         """
         left_has_side_effects = self._has_side_effects(expr.left)
         right_has_side_effects = self._has_side_effects(expr.right)
+        left_returns_non_lua = self._returns_non_lua_value(expr.left)
 
-        if left_has_side_effects or right_has_side_effects:
+        if self._is_always_truthy(expr.left):
+            if left_has_side_effects or right_has_side_effects:
+                left = self.generate(expr.left)
+                return f"[&]() {{ return {left}; }}()"
+            else:
+                left = self.generate(expr.left)
+                return left
+        elif left_has_side_effects or right_has_side_effects:
             left = self.generate(expr.left)
             right = self.generate(expr.right)
-            return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right); }}()"
+            if left_returns_non_lua:
+                return f"[&]() {{ auto _l2c_tmp_left = luaValue({left}); auto _l2c_tmp_right = {right}; auto _l2c_result = luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right); return _l2c_result.as_number(); }}()"
+            else:
+                return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right); }}()"
         else:
             left = self.generate(expr.left)
             right = self.generate(expr.right)
-            return f"luaValue(({left}).is_truthy() ? ({left}) : ({right}))"
+            if left_returns_non_lua:
+                return f"luaValue(luaValue({left}).is_truthy() ? ({left}) : ({right})).as_number()"
+            else:
+                return f"luaValue(({left}).is_truthy() ? ({left}) : ({right}))"
 
     def visit_UMinusOp(self, expr: astnodes.UMinusOp) -> str:
         """Generate code for unary negation"""
@@ -641,6 +675,8 @@ class ExprGenerator:
 
     def visit_ULNotOp(self, expr: astnodes.ULNotOp) -> str:
         """Generate code for unary logical not"""
+        if self._is_always_truthy(expr.operand):
+            return "false"
         operand = self.generate(expr.operand)
         return f"!({operand}).is_truthy()"
 
@@ -705,7 +741,8 @@ class ExprGenerator:
         for arg in expr.args:
             arg_code = self.generate(arg)
             type_hint = self._get_symbol_type_from_context(arg)
-            if not self._should_use_lua_value(type_hint):
+            arg_returns_non_lua = self._returns_non_lua_value(arg)
+            if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
                 # Need to convert to luaValue for library functions
                 args.append(f"luaValue({arg_code})")
             else:
@@ -928,6 +965,49 @@ class ExprGenerator:
             return False
 
         return True
+
+    def _is_always_truthy(self, expr: astnodes.Node) -> bool:
+        """Check if expression is always truthy (e.g., arrays, non-nil globals)
+
+        Arrays like 'arg' are always truthy in Lua.
+        This avoids calling is_truthy() on types that don't support it.
+
+        Args:
+            expr: Expression node to check
+
+        Returns:
+            True if expression is always truthy
+        """
+        if isinstance(expr, astnodes.Name):
+            name = expr.id
+            # Check if it's a known array type (arg, or any variable with array table_info)
+            if name == "arg":
+                return True
+            table_info = self._get_table_info_for_symbol(name)
+            if table_info and table_info.is_array:
+                return True
+        return False
+
+    def _returns_non_lua_value(self, expr: astnodes.Node) -> bool:
+        """Check if expression returns a non-luaValue type (e.g., double, std::string)
+
+        Some library functions return concrete C++ types instead of luaValue.
+        We need to wrap these in luaValue before calling is_truthy().
+
+        Args:
+            expr: Expression node to check
+
+        Returns:
+            True if expression returns non-luaValue type
+        """
+        if isinstance(expr, astnodes.Call) and isinstance(expr.func, astnodes.Name):
+            func_name = expr.func.id
+            # Check GlobalTypeRegistry for return type
+            from lua2c.core.global_type_registry import GlobalTypeRegistry
+            sig = GlobalTypeRegistry.get_function_signature(func_name)
+            if sig and sig.return_type != "luaValue":
+                return True
+        return False
 
     def _infer_array_element_type(self, expr: astnodes.Table) -> Optional[Type]:
         """Infer element type for array table"""
