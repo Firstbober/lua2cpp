@@ -16,6 +16,9 @@ class FunctionSignature:
     return_type: str
     param_types: List[str]
     cpp_signature: str  # Full C++ signature including function pointer syntax
+    is_variadic: bool = False
+    variadic_param_type: Optional[str] = None
+    always_variadic: bool = False
 
 
 class LibraryModule(Enum):
@@ -45,6 +48,7 @@ class GlobalTypeRegistry:
             return_type="void",
             param_types=["const std::vector<luaValue>&"],
             cpp_signature="void(*)(const std::vector<luaValue>&)",
+            always_variadic=True,
         ),
         "io.read": FunctionSignature(
             return_type="std::string",
@@ -59,6 +63,7 @@ class GlobalTypeRegistry:
             return_type="std::string",
             param_types=["const std::string&", "const std::vector<luaValue>&"],
             cpp_signature="std::string(*)(const std::string&, const std::vector<luaValue>&)",
+            always_variadic=True,
         ),
         "string.len": FunctionSignature(
             return_type="double",
@@ -155,6 +160,7 @@ class GlobalTypeRegistry:
             return_type="void",
             param_types=["const std::vector<luaValue>&"],
             cpp_signature="void(*)(const std::vector<luaValue>&)",
+            always_variadic=True,
         ),
     }
 
