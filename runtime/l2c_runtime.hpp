@@ -329,8 +329,23 @@ inline std::string os_date(const std::string& format) {
 // Conversion Functions
 // ============================================================================
 
-inline double tonumber(const luaValue& val) {
-    return val.as_number();
+inline luaValue tonumber(const luaValue& val) {
+    LuaType t = val.type();
+    if (t == LuaType::NUMBER) {
+        return val;
+    }
+    if (t == LuaType::STRING) {
+        try {
+            double num = std::stod(val.as_string());
+            return luaValue(num);
+        } catch (...) {
+            return luaValue();
+        }
+    }
+    if (t == LuaType::BOOLEAN) {
+        return luaValue(val.as_number());
+    }
+    return luaValue();
 }
 
 } // namespace l2c

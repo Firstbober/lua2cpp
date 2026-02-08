@@ -741,6 +741,9 @@ class ExprGenerator:
             if left_returns_non_lua:
                 return f"[&]() {{ auto _l2c_tmp_left = luaValue({left}); auto _l2c_tmp_right = {right}; auto _l2c_result = luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left); return _l2c_result.as_number(); }}()"
             else:
+                expected_type = self._get_expected_type(expr)
+                if expected_type and expected_type.kind == TypeKind.NUMBER:
+                    return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; auto _l2c_result = luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left); return _l2c_result.as_number(); }}()"
                 return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_right : _l2c_tmp_left); }}()"
         else:
             left = self.generate(expr.left)
@@ -748,6 +751,9 @@ class ExprGenerator:
             if left_returns_non_lua:
                 return f"luaValue(luaValue({left}).is_truthy() ? ({right}) : ({left})).as_number()"
             else:
+                expected_type = self._get_expected_type(expr)
+                if expected_type and expected_type.kind == TypeKind.NUMBER:
+                    return f"luaValue(({left}).is_truthy() ? ({right}) : ({left})).as_number()"
                 return f"luaValue(({left}).is_truthy() ? ({right}) : ({left}))"
 
     def visit_OrLoOp(self, expr: astnodes.OrLoOp) -> str:
@@ -778,6 +784,9 @@ class ExprGenerator:
             if left_returns_non_lua:
                 return f"[&]() {{ auto _l2c_tmp_left = luaValue({left}); auto _l2c_tmp_right = {right}; auto _l2c_result = luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right); return _l2c_result.as_number(); }}()"
             else:
+                expected_type = self._get_expected_type(expr)
+                if expected_type and expected_type.kind == TypeKind.NUMBER:
+                    return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; auto _l2c_result = luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right); return _l2c_result.as_number(); }}()"
                 return f"[&]() {{ auto _l2c_tmp_left = {left}; auto _l2c_tmp_right = {right}; return luaValue(_l2c_tmp_left.is_truthy() ? _l2c_tmp_left : _l2c_tmp_right); }}()"
         else:
             left = self.generate(expr.left)
@@ -785,6 +794,9 @@ class ExprGenerator:
             if left_returns_non_lua:
                 return f"luaValue(luaValue({left}).is_truthy() ? ({left}) : ({right})).as_number()"
             else:
+                expected_type = self._get_expected_type(expr)
+                if expected_type and expected_type.kind == TypeKind.NUMBER:
+                    return f"luaValue(({left}).is_truthy() ? ({left}) : ({right})).as_number()"
                 return f"luaValue(({left}).is_truthy() ? ({left}) : ({right}))"
 
     def visit_UMinusOp(self, expr: astnodes.UMinusOp) -> str:

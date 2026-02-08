@@ -152,9 +152,9 @@ class GlobalTypeRegistry:
     # Standalone functions (not in modules)
     STANDALONE_FUNCTIONS: Dict[str, FunctionSignature] = {
         "tonumber": FunctionSignature(
-            return_type="double",
+            return_type="luaValue",
             param_types=["const luaValue&"],
-            cpp_signature="double(*)(const luaValue&)",
+            cpp_signature="luaValue(*)(const luaValue&)",
         ),
         "print": FunctionSignature(
             return_type="void",

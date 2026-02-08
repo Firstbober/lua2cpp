@@ -94,18 +94,23 @@ class StmtGenerator:
                 # Regular assignment: target_code = value_code;
                 target_code = assignment_code if assignment_code else self.expr_gen.generate(target)
 
-                # Set expected type for value if assigning to typed array element
-                element_type = None
+                # Set expected type for value if assigning to typed array element or typed variable
+                expected_type = None
                 if isinstance(target, astnodes.Index) and isinstance(target.value, astnodes.Name):
                     table_name = target.value.id
                     type_inferencer = self.context.get_type_inferencer()
                     if type_inferencer:
                         table_info = type_inferencer.get_table_info(table_name)
                         if table_info and table_info.is_array and table_info.value_type:
-                            element_type = table_info.value_type
+                            expected_type = table_info.value_type
+                elif isinstance(target, astnodes.Name):
+                    var_name = target.id
+                    symbol = self.context.resolve_symbol(var_name)
+                    if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
+                        expected_type = symbol.inferred_type
 
-                if element_type:
-                    self.expr_gen._set_expected_type(value, element_type)
+                if expected_type:
+                    self.expr_gen._set_expected_type(value, expected_type)
                     value_code = self.expr_gen.generate(value)
                     self.expr_gen._clear_expected_type(value)
                 else:
