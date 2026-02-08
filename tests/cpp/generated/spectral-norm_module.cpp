@@ -1,8 +1,8 @@
 // Auto-generated from tests/cpp/lua/spectral-norm.lua
 // Lua2C Transpiler with Type Optimization
 
-#include "spectralnorm_state.hpp"
-#include "spectralnorm_module.hpp"
+#include "spectral-norm_state.hpp"
+#include "spectral-norm_module.hpp"
 
 auto A(spectralnorm_lua_State* state, auto&& i, auto&& j) {
     double ij = i + j - 1;
