@@ -46,3 +46,17 @@ add_custom_command(
 add_executable(spectralnorm_test spectralnorm_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral_norm_module.cpp)
 target_include_directories(spectralnorm_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 target_link_libraries(spectralnorm_test lua2c_runtime)
+
+# Test for ack.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/ack.lua --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/ack.lua
+    VERBATIM
+)
+
+add_executable(ack_test ack_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_module.cpp)
+target_include_directories(ack_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(ack_test lua2c_runtime)

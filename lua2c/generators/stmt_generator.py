@@ -495,7 +495,17 @@ class StmtGenerator:
             return "return luaValue();"
 
         if len(stmt.values) == 1:
-            return f"return {self.expr_gen.generate(stmt.values[0])};"
+            expr_code = self.expr_gen.generate(stmt.values[0])
+
+            if '\n' in expr_code:
+                lines = expr_code.split('\n')
+                if len(lines) > 1:
+                    temp_lines = lines[:-1]
+                    final_expr = lines[-1].strip(';').strip()
+                    temp_code = "    ".join(temp_lines)
+                    return f"do {{\n    {temp_code};\n    return {final_expr};\n}} while (0);"
+
+            return f"return {expr_code};"
 
         # Multiple return values - wrap in std::vector
         values = ", ".join([self.expr_gen.generate(v) for v in stmt.values])
