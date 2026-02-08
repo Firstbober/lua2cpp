@@ -288,8 +288,7 @@ class MainGenerator:
 
         # Standalone functions (print, tonumber)
         init_lines.append("state.print = &l2c::print;")
-        if "tonumber" in used_libraries or "tonumber" in globals:
-            init_lines.append("state.tonumber = &l2c::tonumber;")
+        init_lines.append("state.tonumber = &l2c::tonumber;")
 
         # Library functions
         for lib in sorted(used_libraries):
