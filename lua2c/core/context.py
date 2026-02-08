@@ -7,6 +7,7 @@ Maintains state during transpilation including:
 - File and module information
 - Generated code fragments
 - Optimization logging
+from lua2c.generators.naming import NamingScheme
 """
 
 from pathlib import Path
@@ -220,7 +221,7 @@ class TranslationContext:
             as_library: If True, generate as library (no main.cpp, no arg)
         """
         self._mode = 'single_standalone' if not as_library else 'single_library'
-        self._project_name = module_name
+        self._project_name = NamingScheme.sanitize_path(module_name)
         self._as_library = as_library
 
     def is_library_mode(self) -> bool:
@@ -241,3 +242,9 @@ class TranslationContext:
         if self._mode in ('project', 'single_standalone', 'single_library'):
             return f"{self._project_name}_lua_State*"
         return "luaState*"
+from lua2c.core.symbol_table import SymbolTable
+from lua2c.core.optimization_logger import OptimizationLogger
+
+if TYPE_CHECKING:
+    from lua2c.core.type_system import Type
+from lua2c.generators.naming import NamingScheme

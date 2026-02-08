@@ -57,6 +57,12 @@ class CppEmitter:
 
         lines = []
 
+        # Use module name from context (for single-file mode with custom output name)
+        module_name = self.context.get_project_name() or str(input_file.with_suffix('').name)
+
+        # Debug: show what module_name we're using
+        print(f"DEBUG CppEmitter: module_name='{module_name}'", flush=True)
+
         # Phase 1: Multi-pass type inference
         type_inferencer = TypeInference(self.context, verbose=False)
         type_inferencer.infer_chunk(lua_ast)
@@ -139,6 +145,7 @@ class CppEmitter:
         module_cpp = "\n".join(lines)
 
         if generate_header:
+            # Let header generator calculate state_type from module_name correctly
             module_header = self.generate_module_header(module_name, state_type.rstrip('*'))
             return module_cpp, module_header
 
@@ -211,9 +218,7 @@ class CppEmitter:
         Returns:
             Module header content as string
         """
-        # Calculate state base name (remove _lua_State suffix from state_name)
         state_base = state_name.replace('_lua_State', '')
-        # Use naming scheme to generate export function name
         export_name = self.naming.module_export_name(state_base)
         return f"""#pragma once
 
@@ -221,4 +226,4 @@ class CppEmitter:
 #include "{state_base}_state.hpp"
 
 luaValue {export_name}({state_name}* state);
-"""
+        """

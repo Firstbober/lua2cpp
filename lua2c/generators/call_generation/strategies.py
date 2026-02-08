@@ -134,20 +134,38 @@ class StaticLibraryStrategy(CallGenerationStrategy):
         call_ctx = kwargs.get('call_ctx')
         if not call_ctx or not call_ctx.signature:
             return False
-        
+
+        # Don't handle always_variadic or is_variadic functions
+        if getattr(call_ctx.signature, 'always_variadic', False):
+            return False
+        if getattr(call_ctx.signature, 'is_variadic', False):
+            return False
+
         # Check for fixed parameter types (no vector<luaValue>)
         has_fixed_params = any("vector<luaValue>" not in pt for pt in call_ctx.signature.param_types)
         return has_fixed_params and len(call_ctx.signature.param_types) > 0
     
     def generate(self, expr: astnodes.Call, context: TranslationContext, expr_generator, call_ctx: CallGenerationContext) -> str:
+
         # Generate function path
         func_path = expr_generator.generate(expr.func)
-        
-        # Generate arguments
+
+        # Generate arguments with type hints
         args = []
-        for arg in expr.args:
+        for i, arg in enumerate(expr.args):
+            # Set expected type for std::string parameters
+            if call_ctx.signature and call_ctx.signature.param_types:
+                param_type = call_ctx.signature.param_types[i] if i < len(call_ctx.signature.param_types) else None
+                if param_type and "std::string" in param_type and "vector" not in param_type:
+                    # Parameter is std::string, set expected type for string literals
+                    expr_generator._set_expected_type(arg, Type(TypeKind.STRING))
+
+            # Generate argument (type hints will be used if set)
             args.append(expr_generator.generate(arg))
-        
+
+            # Clear expected type after generating
+            expr_generator._clear_expected_type(arg)
+
         # Build call
         return f"{func_path}({', '.join(args)})"
 
@@ -199,28 +217,50 @@ class VariadicLibraryStrategy(CallGenerationStrategy):
         return False
     
     def generate(self, expr: astnodes.Call, context: TranslationContext, expr_generator, call_ctx: CallGenerationContext) -> str:
-        from lua2c.generators.call_generation.type_queries import TypeQueryService
-        
+
         # Generate function path
         func_path = expr_generator.generate(expr.func)
-        
-        type_service = TypeQueryService(context, expr_generator._type_inferencer)
-        
-        # Generate arguments
-        args = []
-        for arg in expr.args:
-            # Check if we need to unwrap luaValue
-            arg_type = type_service.get_expression_type(arg)
-            if arg_type and arg_type.kind != TypeKind.UNKNOWN:
-                # Use concrete type directly
-                args.append(expr_generator.generate(arg))
-            else:
-                # Keep luaValue wrapper
+
+        # Check if this is string.format (has std::string first param)
+        is_string_format = (call_ctx.func_path == "string.format" if hasattr(call_ctx, 'func_path') else False)
+        has_string_first_param = (call_ctx.signature and call_ctx.signature.param_types and
+                              "std::string" in call_ctx.signature.param_types[0])
+
+        # Generate arguments based on function signature
+        if is_string_format and has_string_first_param:
+            # string.format: first arg as std::string, rest as vector<luaValue>
+            if len(expr.args) > 0:
+                # Set expected type for format string
+                expr_generator._set_expected_type(expr.args[0], Type(TypeKind.STRING))
+                fmt_arg = expr_generator.generate(expr.args[0])
+                expr_generator._clear_expected_type(expr.args[0])
+
+                # Wrap remaining args in vector
+                var_args = []
+                for arg in expr.args[1:]:
+                    arg_code = expr_generator.generate(arg)
+                    if not arg_code.startswith("luaValue("):
+                        var_args.append(f"luaValue({arg_code})")
+                    else:
+                        var_args.append(arg_code)
+
+                # Build call
+                if var_args:
+                    return f"{func_path}({fmt_arg}, {{{', '.join(var_args)}}})"
+                else:
+                    return f"{func_path}({fmt_arg}, {{}})"
+        else:
+            # print/io.write: wrap all args in vector
+            args = []
+            for arg in expr.args:
                 arg_code = expr_generator.generate(arg)
                 if not arg_code.startswith("luaValue("):
                     args.append(f"luaValue({arg_code})")
                 else:
                     args.append(arg_code)
-        
-        # Build variadic call
-        return f"{func_path}({', '.join(args)})"
+
+            # Build call
+            if args:
+                return f"{func_path}({{{', '.join(args)}}})"
+            else:
+                return f"{func_path}({{}})"

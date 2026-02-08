@@ -255,7 +255,8 @@ def transpile_single_file(
     if output_name:
         module_name = output_name.replace('-', '_')
     else:
-        module_name = input_file.stem.replace('-', '_')
+        # Use same naming as emitter.generate_file() to ensure consistency
+        module_name = str(input_file.with_suffix('').name).replace('-', '_')
 
     # Setup context
     context = TranslationContext(input_file.parent, str(input_file.parent))
@@ -666,6 +667,9 @@ Examples:
         else:
             # Single-file mode
             output_name = args.output if args.output else input_file.stem
+            # Sanitize for C++ identifiers: remove .cpp extension and replace hyphens
+            if output_name.endswith('.cpp'):
+                output_name = output_name[:-4]
             output_name = output_name.replace('-', '_')
             results = transpile_single_file(
                 input_file=input_file,

@@ -12,18 +12,19 @@ import re
 class NamingScheme:
     """Handles C identifier generation for Lua constructs"""
 
-    PREFIX = "_l2c"
+    PREFIX = "_l2c__"
     MODULE_EXPORT_SUFFIX = "_export"
 
     @staticmethod
-    def sanitize_path(path: str) -> str:
+    def sanitize_path(path: str, add_prefix: bool = False) -> str:
         """Convert filesystem path to C identifier-safe string
 
         Args:
             path: Filesystem path (e.g., "src/core/utils")
+            add_prefix: If True, add __ prefix for path-separated inputs
 
         Returns:
-            Sanitized string (e.g., "__src__core__utils")
+            Sanitized string (e.g., "__src__core__utils" or "spectral-norm")
         """
         if not path:
             return ""
@@ -37,25 +38,26 @@ class NamingScheme:
         # Strip leading/trailing underscores
         normalized = normalized.strip("_")
         # Collapse multiple consecutive underscores, preserving path separators
-        # Replace 3+ underscores with __
-        normalized = re.sub(r"_{3,}", "__", normalized)
+        # Replace 3+ consecutive underscores with __ (for path separators like ___ -> __)
+        normalized = re.sub(r"(_)\1{2,}", "__", normalized)
 
-        return f"__{normalized}" if normalized else ""
+        # Add __ prefix if input had path separators OR explicitly requested
+        had_path_separator = "\x00" in temp
+        if normalized and (had_path_separator or add_prefix):
+            return f"__{normalized}"
+        return normalized
 
     @staticmethod
     def module_export_name(module_path: str) -> str:
-        """Generate the export function name for a module
+        """Generate export function name for a module
 
         Args:
-            module_path: Module filesystem path relative to project root
+            module_path: Module filesystem path or module name
 
         Returns:
             C function name (e.g., "_l2c__utils_export")
         """
-        from pathlib import Path
-        # Extract just the filename without directory path or extension
-        filename = Path(module_path).name
-        sanitized = NamingScheme.sanitize_path(filename)
+        sanitized = NamingScheme.sanitize_path(module_path)
         return f"{NamingScheme.PREFIX}{sanitized}{NamingScheme.MODULE_EXPORT_SUFFIX}"
 
     @staticmethod

@@ -88,8 +88,10 @@ class MainGenerator:
         lines.extend(self._generate_forward_declarations(project_name, dependency_order))
 
         # Generate main function
+        # Use sanitized module name to match module export function
+        main_module_name = self._extract_main_module_name(main_file_path)
         lines.append(f"int main(int argc, char* argv[]) {{")
-        lines.append(f"    // Auto-generated main for {project_name}")
+        lines.append(f"    // Auto-generated main for {main_module_name}")
         lines.append("")
 
         # Create project state
@@ -104,8 +106,8 @@ class MainGenerator:
         # Initialize library function pointers
         lines.extend(self._generate_library_initialization(used_libraries))
 
-        # Register modules in dependency order
-        lines.extend(self._generate_module_registration(project_name, dependency_order))
+        # Register modules in dependency order (use sanitized module name for registration)
+        lines.extend(self._generate_module_registration(main_module_name, dependency_order))
 
         # Call main module entry point
         lines.extend(self._generate_main_entry(project_name, main_module_name))
@@ -239,7 +241,7 @@ class MainGenerator:
             main_file_path: Path to main.lua file
 
         Returns:
-            Module name (filename without extension)
+            Module name (filename without extension, unsanitized)
         """
         return main_file_path.stem
 
