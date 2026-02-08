@@ -313,11 +313,20 @@ def transpile_single_file(
         inferred_types=inferred_types,  # Pass inferred types (Bug #3 fix)
     )
 
+    main_gen = MainGenerator()
+
     # Generate main (if not library mode)
     main_cpp = None
+    main_template = None
     if not as_library:
-        main_gen = MainGenerator()
         main_cpp = main_gen.generate_standalone_main(
+            module_name=module_name,
+            used_libraries=used_libs,
+            globals=globals,
+        )
+    else:
+        # Generate main template for library mode
+        main_template = main_gen.generate_main_template(
             module_name=module_name,
             used_libraries=used_libs,
             globals=globals,
@@ -328,6 +337,7 @@ def transpile_single_file(
         'module_hpp': module_hpp,
         'module_cpp': module_cpp,
         'main_cpp': main_cpp,
+        'main_template': main_template,
     }
 
 
@@ -579,7 +589,19 @@ def transpile_project(
     if verbose:
         print(f"  Generated header: {main_header_file.name}")
         print(f"  Generated impl: {main_cpp_file.name}")
-
+ 
+    main_gen = MainGenerator()
+ 
+    main_template = main_gen.generate_main_template(
+        module_name=project_name,
+        used_libraries=used_libraries,
+        globals=all_globals,
+    )
+    main_template_file = output_dir / f"{project_name}_main_template.cpp"
+    main_template_file.write_text(main_template)
+    if verbose:
+        print(f"  Generated main template: {main_template_file.name}")
+ 
     main_gen = MainGenerator()
     main_code = main_gen.generate_main_file(
         project_name, main_file, all_globals, dependency_order, used_libraries

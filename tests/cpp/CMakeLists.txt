@@ -35,14 +35,14 @@ target_link_libraries(simple_test lua2c_runtime)
 
 # Test for spectral-norm.lua
 add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral-norm_state.hpp
-           ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral-norm_module.hpp
-           ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral-norm_module.cpp
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral_norm_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral_norm_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral_norm_module.cpp
     COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/spectral-norm.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/spectral-norm.lua
     VERBATIM
 )
 
-add_executable(spectralnorm_test spectralnorm_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral-norm_module.cpp)
+add_executable(spectralnorm_test spectralnorm_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/spectral_norm_module.cpp)
 target_include_directories(spectralnorm_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 target_link_libraries(spectralnorm_test lua2c_runtime)

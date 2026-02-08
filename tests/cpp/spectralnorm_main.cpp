@@ -1,10 +1,10 @@
-#include "spectralnorm_state.hpp"
-#include "spectralnorm_module.hpp"
+#include "spectral_norm_state.hpp"
+#include "spectral_norm_module.hpp"
 #include <iostream>
 
 int main(int argc, char* argv[]) {
-    spectralnorm_lua_State state;
     // Set command-line arguments
+    spectral_norm_lua_State state;
     state.arg = luaArray<luaValue>{{}};
     for (int i = 1; i < argc; ++i) {
         state.arg.set(i - 1, luaValue(argv[i]));
@@ -12,6 +12,7 @@ int main(int argc, char* argv[]) {
 
     // Initialize library function pointers
     state.print = &l2c::print;
+    state.tonumber = &l2c::tonumber;
             state.io.flush = &l2c::io_flush;
             state.io.read = &l2c::io_read;
             state.io.write = &l2c::io_write;
@@ -35,7 +36,7 @@ int main(int argc, char* argv[]) {
             state.string.upper = &l2c::string_upper;
 
     // Call module entry point
-    luaValue result = _l2c__spectralnorm_export(&state);
+    luaValue result = _l2c__spectral_norm_export(&state);
 
     return 0;
 }
