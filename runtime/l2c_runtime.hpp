@@ -16,9 +16,73 @@
 namespace l2c {
 
 // ============================================================================
-// IO Library
+// Type Conversion Helpers
 // ============================================================================
 
+template<typename T>
+inline std::string to_string(T&& arg) {
+    if constexpr (std::is_arithmetic_v<std::decay_t<T>>) {
+        return std::to_string(arg);
+    } else if constexpr (std::is_same_v<std::decay_t<T>, std::string>) {
+        return arg;
+    } else if constexpr (std::is_same_v<std::decay_t<T>, const char*>) {
+        return std::string(arg);
+    } else {
+        // Fallback to luaValue
+        return arg.as_string();
+    }
+}
+
+template<typename T>
+inline double to_number(T&& arg) {
+    if constexpr (std::is_arithmetic_v<std::decay_t<T>>) {
+        return static_cast<double>(arg);
+    } else {
+        // Fallback to luaValue
+        return arg.as_number();
+    }
+}
+
+template<size_t... Is>
+struct index_sequence {};
+
+template<size_t N, size_t... Is>
+struct make_index_sequence_impl : make_index_sequence_impl<N-1, N-1, Is...> {};
+
+template<size_t... Is>
+struct make_index_sequence_impl<0, Is...> {
+    using type = index_sequence<Is...>;
+};
+
+template<size_t N>
+using make_index_sequence = typename make_index_sequence_impl<N>::type;
+
+// ============================================================================
+// Print Function (Variadic)
+// ============================================================================
+template<typename... Args>
+inline void print(Args&&... args) {
+    size_t index = 0;
+    ((std::cout << (index++ > 0 ? "\t" : "") << to_string(args)), ...);
+    std::cout << std::endl;
+}
+// Keep non-template version for backward compatibility
+inline void print(const std::vector<luaValue>& args) {
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i > 0) std::cout << "\t";
+        std::cout << args[i].as_string();
+    }
+    std::cout << std::endl;
+}
+
+// ============================================================================
+// IO Library
+// ============================================================================
+template<typename... Args>
+inline void io_write(Args&&... args) {
+    ((std::cout << to_string(args)), ...);
+}
+// Non-template version for backward compatibility
 inline void io_write(const std::vector<luaValue>& args) {
     for (const auto& arg : args) {
         std::cout << arg.as_string();
@@ -65,7 +129,85 @@ inline double math_randomseed(double seed) {
 // ============================================================================
 // String Library
 // ============================================================================
+template<size_t... Is, typename... Args>
+inline std::string string_format_impl(
+    const std::string& fmt,
+    std::tuple<Args...> args_tuple,
+    index_sequence<Is...>
+) {
+    std::ostringstream result;
+    int pos = 1;
+    size_t i = 0;
+    size_t arg_count = sizeof...(Args);
 
+    while (i < fmt.size()) {
+        if (fmt[i] == '%' && i + 1 < fmt.size()) {
+            i++;
+            std::string flags;
+            int width = 0;
+            int precision = -1;
+
+            while (i < fmt.size() && (fmt[i] == '-' || fmt[i] == '+' || fmt[i] == ' ' || fmt[i] == '#' || fmt[i] == '0')) {
+                flags += fmt[i++];
+            }
+            while (i < fmt.size() && isdigit(fmt[i])) {
+                width = width * 10 + (fmt[i++] - '0');
+            }
+            if (i < fmt.size() && fmt[i] == '.') {
+                i++;
+                precision = 0;
+                while (i < fmt.size() && isdigit(fmt[i])) {
+                    precision = precision * 10 + (fmt[i++] - '0');
+                }
+            }
+            if (i < fmt.size()) {
+                char spec = fmt[i++];
+                if (pos <= static_cast<int>(arg_count)) {
+                    // Create array of arguments to index by position
+                    std::array<luaValue, sizeof...(Args)> args_array{luaValue(std::get<Is>(args_tuple))...};
+                    switch (spec) {
+                        case 'f': {
+                            double val = args_array[pos - 1].as_number();
+                            pos++;
+                            int actual_precision = (precision >= 0) ? precision : 6;
+                            result << std::fixed << std::setprecision(actual_precision) << val;
+                            break;
+                        }
+                        case 'd':
+                            result << static_cast<int>(args_array[pos - 1].as_number());
+                            pos++;
+                            break;
+                        case 's':
+                            result << args_array[pos - 1].as_string();
+                            pos++;
+                            break;
+                        case '\n':
+                            result << '\n';
+                            break;
+                        default:
+                            result << '%' << spec;
+                            break;
+                    }
+                } else {
+                    result << '%' << spec;
+                }
+            } else {
+                result << '%';
+            }
+        } else {
+            result << fmt[i++];
+        }
+    }
+    return result.str();
+}
+
+template<typename... Args>
+inline std::string string_format(const std::string& fmt, Args&&... args) {
+    return string_format_impl(fmt, std::forward_as_tuple(std::forward<Args>(args)...),
+                              make_index_sequence<sizeof...(Args)>{});
+}
+
+// Non-template version for backward compatibility
 inline std::string string_format(const std::string& fmt, const std::vector<luaValue>& args) {
     std::ostringstream result;
     int pos = 1;
@@ -189,18 +331,6 @@ inline std::string os_date(const std::string& format) {
 
 inline double tonumber(const luaValue& val) {
     return val.as_number();
-}
-
-// ============================================================================
-// Print Function
-// ============================================================================
-
-inline void print(const std::vector<luaValue>& args) {
-    for (size_t i = 0; i < args.size(); ++i) {
-        if (i > 0) std::cout << "\t";
-        std::cout << args[i].as_string();
-    }
-    std::cout << std::endl;
 }
 
 } // namespace l2c
