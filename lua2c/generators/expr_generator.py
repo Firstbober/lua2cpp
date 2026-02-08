@@ -17,6 +17,18 @@ try:
 except ImportError:
     raise ImportError("luaparser is required. Install with: pip install luaparser")
 
+from lua2c.generators.call_generation.context import (
+    CallGenerationContext,
+    CallContextBuilder,
+)
+from lua2c.generators.call_generation.strategies import (
+    LocalFunctionStrategy,
+    LibraryFunctionStrategy,
+    StaticLibraryStrategy,
+    VariadicLibraryStrategy,
+    DefaultCallStrategy,
+)
+
 
 class ExprGenerator:
     """Generates C++ code for Lua expressions"""
@@ -91,6 +103,14 @@ class ExprGenerator:
         self.context = context
         self._type_inferencer = None
         self._expected_types = {}
+        
+        # Initialize call generation strategies
+        self._strategies = [
+            LocalFunctionStrategy(),
+            StaticLibraryStrategy(),
+            VariadicLibraryStrategy(),
+            DefaultCallStrategy(),
+        ]
 
     def set_type_inferencer(self, type_inferencer) -> None:
         """Set the type inferencer for expression type queries
@@ -785,7 +805,7 @@ class ExprGenerator:
         return f"l2c_len({operand})"
 
     def visit_Call(self, expr: astnodes.Call) -> str:
-        """Generate code for function call"""
+        """Generate code for function call using strategy pattern"""
 
         # Handle require() in project mode (string literals only)
         # Must check before symbol resolution since require() is a built-in
@@ -804,137 +824,16 @@ class ExprGenerator:
                             "require() only supports string literal arguments in project mode"
                         )
 
-        func = self.generate(expr.func)
+        # Build call context
+        call_ctx = CallContextBuilder.build(expr, self.context, self._type_inferencer)
 
-        # Check if this is a local function call (needs state parameter)
-        if isinstance(expr.func, astnodes.Name):
-            symbol = self.context.resolve_symbol(expr.func.id)
-            if symbol and not symbol.is_global:
-                # Local function: func(state, arg1, arg2, ...)
-                # Handle temporaries for non-const lvalue reference binding
-                wrapped_args = []
-                temp_decls = []
-                temp_counter = [0]
-                
-                # Bug #3 fix: Set expected types for literals to generate native literals
-                for arg in expr.args:
-                    # For literal arguments, set expected type to NUMBER
-                    # This allows them to match typed parameters (double)
-                    is_literal = isinstance(arg, astnodes.Number)
-                    if is_literal:
-                        self._set_expected_type(arg, Type(TypeKind.NUMBER))
-                    
-                    arg_code = self.generate(arg)
-                    self._clear_expected_type(arg)
-                    
-                    if self._is_temporary_expression(arg):
-                        temp_name = f"_l2c_tmp_arg_{temp_counter[0]}"
-                        temp_counter[0] +=1
-                        # Bug #3 fix: Use explicit type for literals to match parameter types
-                        if is_literal:
-                            temp_decls.append(f"double {temp_name} = {arg_code}")
-                        else:
-                            temp_decls.append(f"auto {temp_name} = {arg_code}")
-                        wrapped_args.append(temp_name)
-                    else:
-                        wrapped_args.append(arg_code)
+        # Strategy selection
+        for strategy in self._strategies:
+            if strategy.can_handle(expr, self.context, call_ctx=call_ctx):
+                return strategy.generate(expr, self.context, self, call_ctx)
 
-                args_str = ", ".join(wrapped_args)
-                if temp_decls:
-                    # Need to wrap in block scope for temporaries
-                    temps = "; ".join(temp_decls)
-                    return f"[&] {{ {temps}; return {func}(state, {args_str}); }}()"
-                else:
-                    return f"{func}(state, {args_str})"
-
-        # Global/library function: func({arg1, arg2, ...})
-        # Check if this is a library function with special signature
-        sig = self._get_library_function_signature(expr)
-        
-        if sig:
-            args = []
-            param_types = sig.param_types if sig.param_types else []
-            
-            # Bug #3 fix: Pre-process arguments to handle vector parameters
-            # If we encounter a vector parameter type, collect all remaining args into it
-            vector_args = []
-            result_args = []
-            in_vector_mode = False
-            
-            for i, arg in enumerate(expr.args):
-                param_type = param_types[i] if i < len(param_types) else None
-                
-                if param_type == "const std::vector<luaValue>&" or param_type == "std::vector<luaValue>":
-                    # Enter vector mode: collect all remaining args
-                    in_vector_mode = True
-                    vector_args.append(arg)
-                elif in_vector_mode:
-                    # Already in vector mode, continue collecting
-                    vector_args.append(arg)
-                else:
-                    # Regular parameter, process normally
-                    arg_code = self.generate(arg)
-                    
-                    # Don't wrap if parameter type is std::string or double
-                    if param_type in ["const std::string&", "std::string", "double", "const double&"]:
-                        # If arg_code is luaValue(...), unwrap it
-                        if arg_code.startswith("luaValue(") and arg_code.endswith(")"):
-                            # Extract the inner expression
-                            inner = arg_code[9:-1]  # Remove "luaValue(" and ")"
-                            # Check if inner is a literal (starts with " or is a number)
-                            if inner.startswith('"') or (inner.replace('.', '').replace('-', '').replace('+', '').isdigit()):
-                                # Just use the literal as-is, no .as_string() or .as_number() needed
-                                result_args.append(inner)
-                            else:
-                                # It's an expression, unwrap it
-                                if param_type in ["const std::string&", "std::string"]:
-                                    result_args.append(f"{inner}.as_string()")
-                                elif param_type in ["double", "const double&"]:
-                                    result_args.append(f"{inner}.as_number()")
-                                else:
-                                    result_args.append(inner)
-                        else:
-                            result_args.append(arg_code)
-                    else:
-                        # For luaValue parameters, wrap in luaValue
-                        type_hint = self._get_symbol_type_from_context(arg)
-                        arg_returns_non_lua = self._returns_non_lua_value(arg)
-                        if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
-                            result_args.append(f"luaValue({arg_code})")
-                        else:
-                            result_args.append(arg_code)
-            
-            # If we collected vector args, wrap them together
-            if vector_args:
-                vector_arg_codes = []
-                for arg in vector_args:
-                    arg_code = self.generate(arg)
-                    type_hint = self._get_symbol_type_from_context(arg)
-                    arg_returns_non_lua = self._returns_non_lua_value(arg)
-                    if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
-                        vector_arg_codes.append(f"luaValue({arg_code})")
-                    else:
-                        vector_arg_codes.append(arg_code)
-                # Combine into single vector argument
-                # Bug #3 fix: Use {{ to represent literal { in string
-                result_args.append(f"std::vector<luaValue>{{{{{', '.join(vector_arg_codes)}}}}}")
-            
-            args_str = ", ".join(result_args)
-            return f"({func})({args_str})"
-        else:
-            # Default behavior: wrap all arguments in luaValue
-            args = []
-            for arg in expr.args:
-                arg_code = self.generate(arg)
-                type_hint = self._get_symbol_type_from_context(arg)
-                arg_returns_non_lua = self._returns_non_lua_value(arg)
-                if not self._should_use_lua_value(type_hint) or arg_returns_non_lua:
-                    # Need to convert to luaValue for library functions
-                    args.append(f"luaValue({arg_code})")
-                else:
-                    args.append(arg_code)
-            args_str = ", ".join(args)
-            return f"({func})({{{args_str}}})"
+        # Fallback (shouldn't reach)
+        raise ValueError(f"No strategy can handle call: {expr}")
 
     def visit_Invoke(self, expr: astnodes.Invoke) -> str:
         """Generate code for method invocation (obj:method(args))
