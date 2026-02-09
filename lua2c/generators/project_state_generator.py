@@ -196,6 +196,8 @@ class ProjectStateGenerator:
                 else:
                     declaration = f"        luaValue (*{func_name}){sig.cpp_signature};"
                 lines.append(declaration)
+            else:
+                print(f"DEBUG: Skipping function pointer for {func_name} - no signature found")
         
         return lines
 
