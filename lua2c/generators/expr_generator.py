@@ -603,13 +603,14 @@ class ExprGenerator:
 
     def visit_LessThanOp(self, expr: astnodes.LessThanOp) -> str:
         """Generate code for less-than operation"""
-        # Check if operands are native types (Bug #3 fix)
         left_type = self._get_inferred_expression_type(expr.left)
         right_type = self._get_inferred_expression_type(expr.right)
+        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
         
         # If at least one is NUMBER, set expected type for both
         if (left_type and left_type.kind == TypeKind.NUMBER or
             right_type and right_type.kind == TypeKind.NUMBER):
+            self._set_expected_type(expr, result_type)
             self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
             self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
             left = self.generate_with_parentheses(expr.left, "LessThanOp")
@@ -618,9 +619,21 @@ class ExprGenerator:
             self._clear_expected_type(expr.right)
             return f"luaValue({left} < {right})"
         
-        left = self.generate_with_parentheses(expr.left, "LessThanOp")
-        right = self.generate_with_parentheses(expr.right, "LessThanOp")
-        return f"luaValue({left} < {right})"
+        # If not both operands are native numbers, use luaValue operations
+        # This handles mixing luaValue with native types (e.g., luaValue < int, int < luaValue)
+        if not (left_type and left_type.kind == TypeKind.NUMBER and
+                right_type and right_type.kind == TypeKind.NUMBER):
+            left = self.generate_with_parentheses(expr.left, "LessThanOp")
+            right = self.generate_with_parentheses(expr.right, "LessThanOp")
+            return f"luaValue({left} < {right})"
+        
+        # If not both operands are native numbers, use luaValue operations
+        # This handles mixing luaValue with native types (e.g., double < luaValue)
+        if not (left_type and left_type.kind == TypeKind.NUMBER or
+                right_type and right_type.kind == TypeKind.NUMBER):
+            left = self.generate_with_parentheses(expr.left, "LessThanOp")
+            right = self.generate_with_parentheses(expr.right, "LessThanOp")
+            return f"luaValue({left} < {right})"
 
     def visit_LessOrEqThanOp(self, expr: astnodes.LessOrEqThanOp) -> str:
         """Generate code for less-than-or-equal operation"""
