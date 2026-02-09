@@ -245,7 +245,7 @@ class VariadicLibraryStrategy(CallGenerationStrategy):
                         var_args.append(arg_code)
 
                 if var_args:
-                    return f"{func_path}({fmt_arg}, std::vector<luaValue>{{{', '.join(var_args)}}})"
+                    return f"{func_path}({fmt_arg}, std::vector<luaValue>{{{', '.join(args_str}}})"
                 else:
                     return f"{func_path}({fmt_arg}, {{}})"
         else:
@@ -259,6 +259,5 @@ class VariadicLibraryStrategy(CallGenerationStrategy):
                     args.append(arg_code)
 
             if args:
-                return f"{func_path}(std::vector<luaValue>{{{', '.join(args)}}})"
-            else:
+                return f"{func_path}(std::vector<luaValue> _l2c_vec{{{', '.join(args)}}});"            else:
                 return f"{func_path}({{}})"
