@@ -7,31 +7,21 @@
 ## Phase 1 Status: ✅ COMPLETED
 
 ### What Was Done
-Fixed the C++ `auto` parameter compilation error. All function and lambda parameters now have explicit types, defaulting to `luaValue` if type cannot be inferred.
+Changed from lambda capture approach to C++17 trailing return types for function definitions.
 
 **Changes Made**:
-1. Modified `lua2c/generators/expr_generator.py::visit_AnonymousFunction`
-   - Changed from generating untyped parameter names to typed parameter declarations
-   - Format: `[=](luaValue param1, luaValue param2) { body }`
+1. Modified `lua2c/generators/stmt_generator.py::visit_Function`
+   - Removed lambda capture syntax `[=](...)`
+   - Changed from `auto func(state, auto&& p1, ...)` to `luaValue func(state, luaValue p1, ...) -> luaValue`
+   - Added explicit `luaValue` types for all parameters
+   - Fixed body_code to use `\n` instead of " " for proper line breaks
 
-2. Modified `lua2c/generators/stmt_generator.py::visit_Function`
-   - Changed from `auto func(state, auto&& p1, ...)` to lambda `auto func = [=](luaValue p1, ...) { }`
-   - All parameters now have explicit `luaValue` type (no type inference for now)
-
-3. Modified `lua2c/generators/stmt_generator.py::visit_LocalFunction`
+2. Modified `lua2c/generators/stmt_generator.py::visit_LocalFunction`
    - Same changes as `visit_Function` but for local functions
 
-**Verification**:
-- `ack.lua` test still passes, proving the lambda parameter fix works correctly
+**Key Decision**: Use explicit `luaValue` types instead of type inference for now. This is simpler and ensures type safety.
 
-### New Issues Introduced
-While fixing the `auto` parameter issue, we changed function definitions from regular C++ functions to lambdas with `[=]` capture. This introduced new compilation issues:
-
-1. **Read-only captured variables** - Variables like `count` captured by `[=]` become const inside lambda
-2. **`luaValue` operator overloading** - Operations like `-(luaValue(1))`, `i++`, `i <= lim` don't work without proper operators
-3. **Function call syntax** - Calling lambdas stored in variables needs proper handling (e.g., `main()` not `state->main()`)
-
-These are separate from the original `auto` parameter issue and require additional work.
+**Verification**: ack.lua test still passes after reversion to regular functions.
 
 ---
 
