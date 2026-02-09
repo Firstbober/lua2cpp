@@ -4,7 +4,6 @@ Translates Lua statements to C++ code.
 Handles all statement types: assignment, control flow, loops, etc.
 """
 
-from typing import Optional
 from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind
 from lua2c.core.type_conversion import TypeConverter
@@ -28,54 +27,6 @@ class StmtGenerator:
         """
         self.context = context
         self.expr_gen = ExprGenerator(context)
-
-    def _maybe_add_type_conversion(self, value_code: str, target_type: Optional[Type], value_expr: astnodes.Node) -> str:
-        """Add type conversion from luaValue to primitive type if needed
-
-        When assigning a luaValue expression to a primitive type (double, int),
-        we need to add .as_number() conversion.
-
-        Args:
-            value_code: Generated C++ code for the value expression
-            target_type: Target type for the assignment
-            value_expr: Original AST node for the value expression
-
-        Returns:
-            value_code with conversion added if needed
-        """
-        # Check if target type is a numeric primitive type
-        if target_type and target_type.kind == TypeKind.NUMBER:
-            # Check if the value expression is one that returns luaValue
-            # Arithmetic operations, comparisons, etc. all return luaValue
-            luavalue_returning_exprs = (
-                astnodes.AddOp,
-                astnodes.SubOp,
-                astnodes.MultOp,
-                astnodes.FloatDivOp,
-                astnodes.ModOp,
-                astnodes.ExpoOp,
-                astnodes.EqToOp,
-                astnodes.NotEqToOp,
-                astnodes.LessThanOp,
-                astnodes.LessOrEqThanOp,
-                astnodes.GreaterThanOp,
-                astnodes.GreaterOrEqThanOp,
-                astnodes.AndLoOp,
-                astnodes.OrLoOp,
-                astnodes.Call,
-            )
-
-            if isinstance(value_expr, luavalue_returning_exprs):
-                # The expression returns luaValue, need to convert
-                return f"{value_code}.as_number()"
-
-            # Also check if the generated code explicitly starts with "luaValue("
-            # This catches cases where the value is wrapped but we didn't catch it above
-            stripped = value_code.strip()
-            if stripped.startswith("luaValue("):
-                return f"{value_code}.as_number()"
-
-        return value_code
 
     def generate(self, stmt: astnodes.Node) -> str:
         """Generate C++ code for a statement
@@ -165,8 +116,6 @@ class StmtGenerator:
                 else:
                     value_code = self.expr_gen.generate(value)
 
-                # Add type conversion if assigning luaValue to primitive type
-                value_code = self._maybe_add_type_conversion(value_code, expected_type, value)
                 code_lines.append(f"{target_code} = {value_code};")
 
         return "\n".join(code_lines)
@@ -295,8 +244,6 @@ class StmtGenerator:
                             self.expr_gen._set_expected_type(value, inferred_type)
                             value_code = self.expr_gen.generate(value)
                             self.expr_gen._clear_expected_type(value)
-                            # Add type conversion if assigning luaValue to primitive type
-                            value_code = self._maybe_add_type_conversion(value_code, inferred_type, value)
                             code_lines.append(f"{cpp_type} {var_name} = {value_code};")
                     else:
                         # Unknown/variant type - check for typed array reads or arithmetic
@@ -312,22 +259,13 @@ class StmtGenerator:
                         
                         # If value is arithmetic OR typed array read, use element type
                         is_arithmetic = isinstance(value, (astnodes.AddOp, astnodes.SubOp,
-                                                          astnodes.MultOp, astnodes.FloatDivOp))
+                                                         astnodes.MultOp, astnodes.FloatDivOp))
                         if is_arithmetic or element_type_from_array:
-                            # If inferred type is UNKNOWN (luaValue), don't force to double
-                            # luaValue doesn't support arithmetic with native types
-                            if inferred_type and inferred_type.kind == TypeKind.UNKNOWN:
-                                cpp_type = "luaValue"
-                                target_type = None
-                            else:
-                                cpp_type = "double"
-                                target_type = Type(TypeKind.NUMBER)
-                                use_type = element_type_from_array if element_type_from_array else target_type
-                                self.expr_gen._set_expected_type(value, use_type)
+                            cpp_type = "double"
+                            use_type = element_type_from_array if element_type_from_array else Type(TypeKind.NUMBER)
+                            self.expr_gen._set_expected_type(value, use_type)
                             value_code = self.expr_gen.generate(value)
                             self.expr_gen._clear_expected_type(value)
-                            # Add type conversion if assigning luaValue to primitive type
-                            value_code = self._maybe_add_type_conversion(value_code, target_type, value)
                             code_lines.append(f"{cpp_type} {var_name} = {value_code};")
                         else:
                             value_code = self.expr_gen.generate(value)
@@ -358,66 +296,90 @@ class StmtGenerator:
     def visit_Function(self, stmt: astnodes.Function) -> str:
         """Generate code for global function definition"""
         func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
-        
-        # Mangle function name if it conflicts with C++ keywords
-        from lua2c.generators.naming import NamingScheme
-        func_name = NamingScheme.mangle_function_name(func_name, is_local=False)
-        
         self.context.enter_function()
 
-        param_decls = []
+        # Handle parameters
+        param_names = []
+        type_inferencer = self.context.get_type_inferencer()
         for i, param in enumerate(stmt.args):
             if hasattr(param, 'id'):
                 param_name = param.id
                 self.context.define_parameter(param_name, i)
-                param_decls.append(f"luaValue {param_name}")
 
+                # Bug #3 fix: Set inferred type on parameter symbol
+                if type_inferencer:
+                    inferred_type = type_inferencer.get_type(param_name)
+                    if inferred_type:
+                        symbol = self.context.resolve_symbol(param_name)
+                        if symbol:
+                            symbol.inferred_type = inferred_type
+
+                param_names.append(param_name)
+
+        # Generate function body
         body_statements = [self.generate(s) for s in stmt.body.body]
 
+        # Add return statement if function doesn't end with one
         if body_statements and not isinstance(stmt.body.body[-1], astnodes.Return):
             body_statements.append("return luaValue();")
 
         body_code = "\n".join(body_statements)
         self.context.exit_function()
 
-        params_str = ", ".join(param_decls)
+        # Bug #3 fix: Use auto&& (forwarding reference) for parameters
+        # This allows binding to both lvalues and rvalues, enabling:
+        # - Reassignment (since && can be moved from)
+        # - Passing temporary expressions like M - 1 or 1
+        params_str = ", ".join([f"auto&& {p}" for p in param_names])
         state_type = self.context.get_state_type()
         if params_str:
-            return f"auto {func_name}({state_type} state, {params_str}) -> luaValue {{\n    {body_code}\n}}"
+            return f"auto {func_name}({state_type} state, {params_str}) {{\n    {body_code}\n}}"
         else:
-            return f"auto {func_name}({state_type} state) -> luaValue {{\n    {body_code}\n}}"
+            return f"auto {func_name}({state_type} state) {{\n    {body_code}\n}}"
 
     def visit_LocalFunction(self, stmt: astnodes.LocalFunction) -> str:
         """Generate code for local function definition"""
         func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
-        
-        # Mangle function name if it conflicts with C++ keywords
-        from lua2c.generators.naming import NamingScheme
-        func_name = NamingScheme.mangle_function_name(func_name, is_local=True)
-        
         self.context.enter_function()
 
-        param_decls = []
+        # Handle parameters
+        param_names = []
+        type_inferencer = self.context.get_type_inferencer()
         for i, param in enumerate(stmt.args):
             if hasattr(param, 'id'):
                 param_name = param.id
                 self.context.define_parameter(param_name, i)
-                param_decls.append(f"luaValue {param_name}")
+                
+                # Bug #3 fix: Set inferred type on parameter symbol
+                if type_inferencer:
+                    inferred_type = type_inferencer.get_type(param_name)
+                    if inferred_type:
+                        symbol = self.context.resolve_symbol(param_name)
+                        if symbol:
+                            symbol.inferred_type = inferred_type
+                
+                param_names.append(param_name)
 
+        # Generate function body
         body_statements = [self.generate(s) for s in stmt.body.body]
 
+        # Add return statement if function doesn't end with one
         if body_statements and not isinstance(stmt.body.body[-1], astnodes.Return):
             body_statements.append("return luaValue();")
 
         body_code = "\n".join(body_statements)
         self.context.exit_function()
 
-        params_str = ", ".join(param_decls)
+        # Bug #3 fix: Use auto&& (forwarding reference) for parameters
+        # This allows binding to both lvalues and rvalues, enabling:
+        # - Reassignment (since && can be moved from)
+        # - Passing temporary expressions like M - 1 or 1
+        params_str = ", ".join([f"auto&& {p}" for p in param_names])
         state_type = self.context.get_state_type()
         if params_str:
-            return f"auto {func_name}({state_type} state, {params_str}) -> luaValue {{\n    {body_code}\n}}"
+            return f"auto {func_name}({state_type} state, {params_str}) {{\n    {body_code}\n}}"
         else:
-            return f"auto {func_name}({state_type} state) -> luaValue {{\n    {body_code}\n}}"
+            return f"auto {func_name}({state_type} state) {{\n    {body_code}\n}}"
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
         """Generate code for function call statement"""
@@ -513,21 +475,24 @@ class StmtGenerator:
         target_name = stmt.target.id if hasattr(stmt.target, 'id') else "i"
         self.context.enter_block()
         
+        # Get inferred type for loop variable and define it
         target_type = None
         type_inferencer = self.context.get_type_inferencer()
         if type_inferencer:
             target_type = type_inferencer.get_type(target_name)
         
+        # Define local with inferred type (Fix 1)
         self.context.define_local(target_name, inferred_type=target_type)
         
+        # Fall back to symbol's inferred_type
         if not target_type:
             symbol = self.context.resolve_symbol(target_name)
             if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
                 target_type = symbol.inferred_type
         
-        use_native_double = target_type and target_type.kind == TypeKind.NUMBER
-        
-        if use_native_double:
+        # Generate start/stop/step with type hints
+        if target_type and target_type.kind == TypeKind.NUMBER:
+            # Use type hints to generate native literals
             self.expr_gen._set_expected_type(stmt.start, target_type)
             start = self.expr_gen.generate(stmt.start)
             self.expr_gen._clear_expected_type(stmt.start)
@@ -542,19 +507,19 @@ class StmtGenerator:
         if stmt.step:
             if isinstance(stmt.step, (int, float)):
                 step_val = stmt.step
-                if use_native_double:
+                if target_type and target_type.kind == TypeKind.NUMBER:
                     step = f"{step_val}" if step_val == 1 else f"{step_val}"
                 else:
                     step = f"luaValue({step_val})"
             else:
-                if use_native_double:
+                if target_type and target_type.kind == TypeKind.NUMBER:
                     self.expr_gen._set_expected_type(stmt.step, target_type)
                     step = self.expr_gen.generate(stmt.step)
                     self.expr_gen._clear_expected_type(stmt.step)
                 else:
                     step = self.expr_gen.generate(stmt.step)
         else:
-            if use_native_double:
+            if target_type and target_type.kind == TypeKind.NUMBER:
                 step = "1"
             else:
                 step = "luaValue(1)"
@@ -562,12 +527,14 @@ class StmtGenerator:
         body = "\n    ".join([self.generate(s) for s in stmt.body.body])
         self.context.exit_block()
         
-        if use_native_double:
+        # Use native double type if inferred type is NUMBER
+        if target_type and target_type.kind == TypeKind.NUMBER:
             if step == "1":
-                return f"for (double {target_name} = {start}; {target_name} <= luaValue({stop}).as_number(); {target_name}++) {{\n    {body}\n}}"
+                return f"for (double {target_name} = {start}; {target_name} <= {stop}; {target_name}++) {{\n    {body}\n}}"
             else:
-                return f"for (double {target_name} = {start}; {target_name} <= luaValue({stop}).as_number(); {target_name} += {step}) {{\n    {body}\n}}"
+                return f"for (double {target_name} = {start}; {target_name} <= {stop}; {target_name} += {step}) {{\n    {body}\n}}"
         else:
+            # Fallback to luaValue for non-numeric loops
             if step == "luaValue(1)":
                 return f"for (luaValue {target_name} = {start}; {target_name} <= {stop}; {target_name}++) {{\n    {body}\n}}"
             else:
@@ -581,18 +548,13 @@ class StmtGenerator:
         if len(stmt.values) == 1:
             expr_code = self.expr_gen.generate(stmt.values[0])
 
-            # Check if expression is a lambda (contains [=]( or [&]( )
-            # Lambdas should not be wrapped in do-while block
-            is_lambda = '[=](' in expr_code or '[&](' in expr_code
-
-            if '\n' in expr_code and not is_lambda:
+            if '\n' in expr_code:
                 lines = expr_code.split('\n')
                 if len(lines) > 1:
                     temp_lines = lines[:-1]
                     final_expr = lines[-1].strip(';').strip()
                     temp_code = "    ".join(temp_lines)
-                    # temp_code already contains semicolons from each statement
-                    return f"do {{\n    {temp_code}\n    return {final_expr};\n}} while (0);"
+                    return f"do {{\n    {temp_code};\n    return {final_expr}\n}} while (0);"
             return f"return {expr_code};"
 
         # Multiple return values - wrap in std::vector

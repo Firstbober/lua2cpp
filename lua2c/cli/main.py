@@ -298,9 +298,11 @@ def transpile_single_file(
 
     # Get inferred types for globals
     inferred_types = {}
+    table_info = {}
     type_inferencer = context.get_type_inferencer()
     if type_inferencer:
         inferred_types = type_inferencer.inferred_types
+        table_info = type_inferencer.table_info
 
     # Generate state header
     state_gen = ProjectStateGenerator(module_name)
@@ -309,8 +311,9 @@ def transpile_single_file(
         modules=set(),
         library_modules=used_libs,
         include_module_registry=False,
-        include_arg=True,  # Always include arg if used, regardless of mode
-        inferred_types=inferred_types,  # Pass inferred types (Bug #3 fix)
+        include_arg=True,
+        inferred_types=inferred_types,
+        table_info=table_info,
     )
 
     main_gen = MainGenerator()
@@ -546,7 +549,9 @@ def transpile_project(
 
     all_globals = _collect_globals(project_root, lua_files)
 
-    state_header = state_gen.generate_state_class(all_globals, set(dependency_order), used_libraries)
+    state_header = state_gen.generate_state_class(
+        all_globals, set(dependency_order), used_libraries, inferred_types=None, table_info=None
+    )
     state_file = output_dir / f"{project_name}_state.hpp"
     state_file.write_text(state_header)
     if verbose:
