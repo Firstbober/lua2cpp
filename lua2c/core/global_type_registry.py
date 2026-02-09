@@ -167,6 +167,11 @@ class GlobalTypeRegistry:
             param_types=["const luaValue&"],
             cpp_signature="luaValue(*)(const luaValue&)",
         ),
+        "l2c_pow": FunctionSignature(
+            return_type="double",
+            param_types=["double", "double"],
+            cpp_signature="double(*)(double, double)",
+        ),
     }
 
     # Module organization

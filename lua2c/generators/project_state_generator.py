@@ -158,8 +158,8 @@ class ProjectStateGenerator:
             List of C++ member declaration lines
         """
         lines = []
-        standalone_funcs = ["print", "tonumber", "assert"]
-        
+        standalone_funcs = ["print", "tonumber", "assert", "l2c_pow"]
+
         for func_name in sorted(standalone_funcs):
             sig = self.registry.get_function_signature(func_name)
             if sig:
@@ -172,16 +172,17 @@ class ProjectStateGenerator:
                 else:
                     declaration = f"    {sig.cpp_signature} {func_name};"
                 lines.append(declaration)
-        
+
         # Detect module-level main() functions by checking symbol table
         module_main_funcs = []
-        for symbol in self.symbol_table.get_all_symbols():
-            if hasattr(symbol, 'name') and symbol.name.lower() == 'main':
-                func_name = symbol.name
-                # Check if not a local function by checking body
-                # Functions with body are defined; module-level functions are just references
-                if not symbol.is_local:
-                    module_main_funcs.append(func_name)
+        if hasattr(self, 'symbol_table'):
+            for symbol in self.symbol_table.get_all_symbols():
+                if hasattr(symbol, 'name') and symbol.name.lower() == 'main':
+                    func_name = symbol.name
+                    # Check if not a local function by checking body
+                    # Functions with body are defined; module-level functions are just references
+                    if not symbol.is_local:
+                        module_main_funcs.append(func_name)
         
         # Add function pointer declarations for module-level main() functions
         for func_name in sorted(module_main_funcs):

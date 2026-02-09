@@ -129,6 +129,8 @@ inline double math_log(double x) { return std::log(x); }
 inline double math_exp(double x) { return std::exp(x); }
 inline double math_pow(double base, double exp) { return std::pow(base, exp); }
 
+inline double l2c_pow(double base, double exp) { return std::pow(base, exp); }
+
 inline double math_min(double a, double b) { return a < b ? a : b; }
 inline double math_max(double a, double b) { return a > b ? a : b; }
 
