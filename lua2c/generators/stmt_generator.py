@@ -371,9 +371,15 @@ class StmtGenerator:
             # Combine temporaries with call
             args_str = ", ".join(wrapped_args)
             if temp_decls:
-                return "{\n    " + "\n    ".join(temp_decls) + "\n    " + f"{func_code}(state, {args_str});\n" + "}"
+                if args_str:
+                    return "{\n    " + "\n    ".join(temp_decls) + "\n    " + f"{func_code}(state, {args_str});\n" + "}"
+                else:
+                    return "{\n    " + "\n    ".join(temp_decls) + "\n    " + f"{func_code}(state);\n" + "}"
             else:
-                return f"{func_code}(state, {args_str});"
+                if args_str:
+                    return f"{func_code}(state, {args_str});"
+                else:
+                    return f"{func_code}(state);"
         else:
             # Global/library function
             expr_code = self.expr_gen.generate(stmt)

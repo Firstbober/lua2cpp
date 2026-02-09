@@ -49,8 +49,7 @@ target_link_libraries(spectralnorm_test lua2c_runtime)
 
 # Test for ack.lua
 add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_state.hpp
-           ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_module.hpp
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_module.hpp
            ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_module.cpp
     COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/ack.lua --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/ack.lua
@@ -60,3 +59,59 @@ add_custom_command(
 add_executable(ack_test ack_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/ack_module.cpp)
 target_include_directories(ack_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 target_link_libraries(ack_test lua2c_runtime)
+
+# Test for test_array.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_array_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_array_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_array_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/test_array.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/test_array.lua
+    VERBATIM
+)
+
+add_executable(test_array_test test_array_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_array_module.cpp)
+target_include_directories(test_array_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(test_array_test lua2c_runtime)
+
+# Test for test_assign.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_assign_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_assign_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_assign_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/test_assign.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/test_assign.lua
+    VERBATIM
+)
+
+add_executable(test_assign_test test_assign_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_assign_module.cpp)
+target_include_directories(test_assign_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(test_assign_test lua2c_runtime)
+
+# Test for test_func.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_func_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_func_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_func_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/test_func.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/test_func.lua
+    VERBATIM
+)
+
+add_executable(test_func_test test_func_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/test_func_module.cpp)
+target_include_directories(test_func_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(test_func_test lua2c_runtime)
+
+# Test for comparisons.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/comparisons.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/comparisons.lua
+    VERBATIM
+)
+
+add_executable(comparisons_test comparisons_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons_module.cpp)
+target_include_directories(comparisons_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(comparisons_test lua2c_runtime)
