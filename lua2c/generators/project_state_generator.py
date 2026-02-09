@@ -139,6 +139,8 @@ class ProjectStateGenerator:
                 lines.append(declaration)
             else:
                 inferred_type = None
+                # Skip variable declaration if no type info
+                # Only comment is added by the if/elif chain above
                 if inferred_types and global_name in inferred_types:
                     inferred_type = inferred_types[global_name]
 
