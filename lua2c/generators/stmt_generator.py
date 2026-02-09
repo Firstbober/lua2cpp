@@ -295,7 +295,7 @@ class StmtGenerator:
 
     def visit_Function(self, stmt: astnodes.Function) -> str:
         """Generate code for global function definition"""
-        func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+        func_name = self.naming.mangle_function_name(stmt.name.id if hasattr(stmt.name, 'id') else "anonymous", is_global=True)
         self.context.enter_function()
 
         # Handle parameters
