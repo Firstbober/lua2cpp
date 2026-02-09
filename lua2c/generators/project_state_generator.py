@@ -152,14 +152,14 @@ class ProjectStateGenerator:
         return lines
 
     def _generate_standalone_functions(self) -> List[str]:
-        """Generate C++ members for standalone Lua functions (print, tonumber)
-
+        """Generate C++ members for standalone Lua functions (print, tonumber, module-level main)
+        
         Returns:
             List of C++ member declaration lines
         """
         lines = []
         standalone_funcs = ["print", "tonumber", "assert"]
-
+        
         for func_name in sorted(standalone_funcs):
             sig = self.registry.get_function_signature(func_name)
             if sig:
@@ -172,7 +172,31 @@ class ProjectStateGenerator:
                 else:
                     declaration = f"    {sig.cpp_signature} {func_name};"
                 lines.append(declaration)
-
+        
+        # Detect module-level main() functions by checking symbol table
+        module_main_funcs = []
+        for symbol in self.symbol_table.get_all_symbols():
+            if hasattr(symbol, 'name') and symbol.name.lower() == 'main':
+                func_name = symbol.name
+                # Check if not a local function by checking body
+                # Functions with body are defined; module-level functions are just references
+                if not symbol.is_local:
+                    module_main_funcs.append(func_name)
+        
+        # Add function pointer declarations for module-level main() functions
+        for func_name in sorted(module_main_funcs):
+            sig = self.registry.get_function_signature(func_name)
+            if sig:
+                # Parse cpp_signature and reformat with function name
+                match = re.search(r'\(\*\)\((.*)\)', sig.cpp_signature)
+                if match:
+                    param_type = match.group(1)
+                    return_type = sig.cpp_signature.split('(*)')[0]
+                    declaration = f"        luaValue (*{func_name})({param_type});"
+                else:
+                    declaration = f"        luaValue (*{func_name}){sig.cpp_signature};"
+                lines.append(declaration)
+        
         return lines
 
     def _generate_library_struct(self, lib_name: str) -> List[str]:
