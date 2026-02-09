@@ -172,12 +172,15 @@ class StmtGenerator:
             if hasattr(target, 'id'):
                 var_name = target.id
                 
-                # Get inferred type for this variable (Fix 1)
-                inferred_type = None
-                if type_inferencer:
-                    inferred_type = type_inferencer.get_type(var_name)
-                
-                self.context.define_local(var_name, inferred_type=inferred_type)
+                # Only define variable if it's not already defined
+                if not self.context.get_symbol_table().is_defined(var_name):
+                    # Get inferred type for this variable (Fix 1)
+                    inferred_type = None
+                    type_inferencer = self.context.get_type_inferencer()
+                    if type_inferencer:
+                        inferred_type = type_inferencer.get_type(var_name)
+                    
+                    self.context.define_local(var_name, inferred_type=inferred_type)
                 target_names.append(var_name)
             else:
                 target_names.append(self.expr_gen.generate(target))
@@ -273,10 +276,6 @@ class StmtGenerator:
                                 lines = value_code.split('\n')
                                 code_lines.extend([line + ';' if not line.endswith(';') else line for line in lines[:-1]])
                                 value_code = lines[-1].strip()
-                            if isinstance(value, astnodes.Call) and isinstance(value.func, astnodes.Name):
-                                symbol = self.context.resolve_symbol(value.func.id)
-                                if symbol and not symbol.is_global and 'luaValue(' not in value_code:
-                                    value_code = f'luaValue({value_code})'
                             code_lines.append(f"luaValue {var_name} = {value_code};")
                 else:
                     # Complex target (not just Name) - use luaValue
@@ -295,7 +294,8 @@ class StmtGenerator:
 
     def visit_Function(self, stmt: astnodes.Function) -> str:
         """Generate code for global function definition"""
-        func_name = self.naming.mangle_function_name(stmt.name.id if hasattr(stmt.name, 'id') else "anonymous", is_global=True)
+        from lua2c.generators.naming import NamingScheme
+        func_name = NamingScheme.mangle_function_name(stmt.name.id if hasattr(stmt.name, 'id') else "anonymous", is_local=False)
         self.context.enter_function()
 
         # Handle parameters

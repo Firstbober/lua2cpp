@@ -57,12 +57,13 @@ class LocalFunctionStrategy(CallGenerationStrategy):
 
         func = expr_generator.generate(expr.func)
 
-        wrapped_args = []
-
+        # Generate arguments directly without luaValue wrapping
+        # Functions with auto&& parameters can bind to both native types and luaValue
+        # The compiler will implicitly convert native types to luaValue if needed
+        arg_codes = []
         for arg in expr.args:
             is_literal = isinstance(arg, (astnodes.Number, astnodes.String,
                                         astnodes.TrueExpr, astnodes.FalseExpr, astnodes.Nil))
-            is_call = isinstance(arg, astnodes.Call)
 
             if is_literal:
                 expr_generator._set_expected_type(arg, Type(TypeKind.NUMBER) if isinstance(arg, astnodes.Number) else Type(TypeKind.STRING))
@@ -70,14 +71,9 @@ class LocalFunctionStrategy(CallGenerationStrategy):
             arg_code = expr_generator.generate(arg)
             expr_generator._clear_expected_type(arg)
 
-            if is_literal:
-                wrapped_args.append(f"luaValue({arg_code})")
-            elif is_call or arg_code.startswith("luaValue("):
-                wrapped_args.append(arg_code)
-            else:
-                wrapped_args.append(f"luaValue({arg_code})")
+            arg_codes.append(arg_code)
 
-        args_str = ", ".join(wrapped_args)
+        args_str = ", ".join(arg_codes)
         if args_str:
             return f"{func}(state, {args_str})"
         else:

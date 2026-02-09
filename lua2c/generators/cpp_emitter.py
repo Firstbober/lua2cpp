@@ -163,11 +163,12 @@ class CppEmitter:
         functions = []
 
         for stmt in chunk.body.body:
-            if isinstance(stmt, astnodes.LocalFunction):
+            if isinstance(stmt, (astnodes.LocalFunction, astnodes.Function)):
                 func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
                 # Register function in symbol table BEFORE generating function body
                 # This allows recursive calls to find the function in the outer scope
-                self.context.define_function(func_name, is_global=False)
+                is_global = isinstance(stmt, astnodes.Function)
+                self.context.define_function(func_name, is_global=is_global)
                 func_code = self.stmt_gen.generate(stmt)
                 functions.append(func_code)
 
@@ -186,7 +187,7 @@ class CppEmitter:
 
         for stmt in chunk.body.body:
             # Skip function definitions (they're generated separately)
-            if not isinstance(stmt, astnodes.LocalFunction):
+            if not isinstance(stmt, (astnodes.LocalFunction, astnodes.Function)):
                 stmt_code = self.stmt_gen.generate(stmt)
                 if stmt_code:
                     statements.append(f"    {stmt_code}")
