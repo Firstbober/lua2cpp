@@ -259,11 +259,16 @@ class StmtGenerator:
                         
                         # If value is arithmetic OR typed array read, use element type
                         is_arithmetic = isinstance(value, (astnodes.AddOp, astnodes.SubOp,
-                                                         astnodes.MultOp, astnodes.FloatDivOp))
+                                                          astnodes.MultOp, astnodes.FloatDivOp))
                         if is_arithmetic or element_type_from_array:
-                            cpp_type = "double"
-                            use_type = element_type_from_array if element_type_from_array else Type(TypeKind.NUMBER)
-                            self.expr_gen._set_expected_type(value, use_type)
+                            # If inferred type is UNKNOWN (luaValue), don't force to double
+                            # luaValue doesn't support arithmetic with native types
+                            if inferred_type and inferred_type.kind == TypeKind.UNKNOWN:
+                                cpp_type = "luaValue"
+                            else:
+                                cpp_type = "double"
+                                use_type = element_type_from_array if element_type_from_array else Type(TypeKind.NUMBER)
+                                self.expr_gen._set_expected_type(value, use_type)
                             value_code = self.expr_gen.generate(value)
                             self.expr_gen._clear_expected_type(value)
                             code_lines.append(f"{cpp_type} {var_name} = {value_code};")
@@ -343,9 +348,9 @@ class StmtGenerator:
         params_str = ", ".join(param_decls)
         state_type = self.context.get_state_type()
         if params_str:
-            return f"luaValue {func_name}({state_type} state, {params_str}) -> luaValue {{\n    {body_code}\n}}"
+            return f"auto {func_name}({state_type} state, {params_str}) -> luaValue {{\n    {body_code}\n}}"
         else:
-            return f"luaValue {func_name}({state_type} state) -> luaValue {{\n    {body_code}\n}}"
+            return f"auto {func_name}({state_type} state) -> luaValue {{\n    {body_code}\n}}"
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
         """Generate code for function call statement"""

@@ -54,53 +54,34 @@ class LocalFunctionStrategy(CallGenerationStrategy):
     
     def generate(self, expr: astnodes.Call, context: TranslationContext, expr_generator, call_ctx: CallGenerationContext) -> str:
         from lua2c.generators.call_generation.type_queries import TypeQueryService
-        
-        # Generate function name
+
         func = expr_generator.generate(expr.func)
-        
-        # Handle temporaries for non-const lvalue reference binding
+
         wrapped_args = []
-        temp_decls = []
-        temp_counter = [0]
-        
-        type_service = TypeQueryService(context, expr_generator._type_inferencer)
-        
+
         for arg in expr.args:
-            # Set expected types for literals to generate native literals
-            is_literal = isinstance(arg, (astnodes.Number, astnodes.String, 
-                                        astnodes.TrueExpr, astnodes.FalseExpr))
-            
+            is_literal = isinstance(arg, (astnodes.Number, astnodes.String,
+                                        astnodes.TrueExpr, astnodes.FalseExpr, astnodes.Nil))
+            is_call = isinstance(arg, astnodes.Call)
+
             if is_literal:
                 expr_generator._set_expected_type(arg, Type(TypeKind.NUMBER) if isinstance(arg, astnodes.Number) else Type(TypeKind.STRING))
-            
+
             arg_code = expr_generator.generate(arg)
             expr_generator._clear_expected_type(arg)
-            
-            if expr_generator._is_temporary_expression(arg):
-                temp_name = f"_l2c_tmp_arg_{temp_counter[0]}"
-                temp_counter[0] += 1
-                
-                if isinstance(arg, astnodes.Number):
-                    temp_decls.append(f"double {temp_name} = {arg_code}")
-                elif isinstance(arg, astnodes.String):
-                    temp_decls.append(f'std::string {temp_name} = {arg_code}')
-                else:
-                    temp_decls.append(f'auto {temp_name} = {arg_code}')
-                wrapped_args.append(temp_name)
-            else:
+
+            if is_literal:
+                wrapped_args.append(f"luaValue({arg_code})")
+            elif is_call or arg_code.startswith("luaValue("):
                 wrapped_args.append(arg_code)
-        
-        # Build call
+            else:
+                wrapped_args.append(f"luaValue({arg_code})")
+
         args_str = ", ".join(wrapped_args)
         if args_str:
-            call_code = f"{func}(state, {args_str})"
+            return f"{func}(state, {args_str})"
         else:
-            call_code = f"{func}(state)"
-        
-        # Prepend temporaries
-        if temp_decls:
-            return ";\n".join(temp_decls) + ";\n" + call_code
-        return call_code
+            return f"{func}(state)"
 
 
 class LibraryFunctionStrategy(CallGenerationStrategy):
@@ -245,7 +226,7 @@ class VariadicLibraryStrategy(CallGenerationStrategy):
                         var_args.append(arg_code)
 
                 if var_args:
-                    return f"{func_path}({fmt_arg}, std::vector<luaValue>{{{', '.join(args_str}}})"
+                    return f"{func_path}({fmt_arg}, std::vector<luaValue>{{{', '.join(var_args)}}})"
                 else:
                     return f"{func_path}({fmt_arg}, {{}})"
         else:
@@ -259,5 +240,6 @@ class VariadicLibraryStrategy(CallGenerationStrategy):
                     args.append(arg_code)
 
             if args:
-                return f"{func_path}(std::vector<luaValue> _l2c_vec{{{', '.join(args)}}});"            else:
+                return f"{func_path}(std::vector<luaValue>{{{', '.join(args)}}})"
+            else:
                 return f"{func_path}({{}})"

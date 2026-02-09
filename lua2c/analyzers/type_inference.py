@@ -720,7 +720,19 @@ class TypeInference:
         info.has_numeric_keys = set(range(1, len(table_expr.fields) + 1)) if is_array else set()
     
     def _merge_type(self, symbol: str, new_type: Type) -> None:
-        """Merge new type information for a symbol"""
+        """Merge new type information for a symbol
+
+        Note: Function parameters are NOT updated based on usage to preserve
+        Lua's dynamic typing semantics. Parameters remain luaValue.
+        """
+        # Skip type merging for function parameters
+        if self._current_function:
+            signature = self.func_registry.get_signature(self._current_function)
+            if signature and symbol in signature.param_names:
+                # This is a function parameter - don't update its type
+                # to preserve Lua's dynamic typing
+                return
+
         if symbol not in self.seen_types:
             self.seen_types[symbol] = set()
 
@@ -742,7 +754,20 @@ class TypeInference:
             self.inferred_types[symbol] = Type(TypeKind.VARIANT, subtypes=variant_types)
 
     def _get_symbol_type(self, name: str) -> Type:
-        """Get inferred type for a symbol"""
+        """Get inferred type for a symbol
+
+        Function parameters have priority over outer scope variables with same name
+        to handle variable shadowing correctly.
+        """
+        # Check if this is a function parameter first (priority over inferred_types)
+        if self._current_function:
+            signature = self.func_registry.get_signature(self._current_function)
+            if signature and name in signature.param_names:
+                # This is a function parameter - use its type from inferred_types
+                # Parameters should be UNKNOWN to preserve Lua's dynamic typing
+                return self.inferred_types.get(name, Type(TypeKind.UNKNOWN))
+
+        # Otherwise use inferred types
         if name in self.inferred_types:
             return self.inferred_types[name]
         return Type(TypeKind.UNKNOWN)

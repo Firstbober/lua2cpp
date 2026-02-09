@@ -369,44 +369,15 @@ class ExprGenerator:
         """Generate code for addition operation"""
         left_type = self._get_inferred_expression_type(expr.left)
         right_type = self._get_inferred_expression_type(expr.right)
-        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
+        # Prefer inferred types over parent's expected type (fix for nested expressions)
+        result_type = self._get_inferred_expression_type(expr) or self._get_expected_type(expr)
+        print(f"DEBUG: visit_AddOp: left_type={left_type.kind}, right_type={right_type.kind}, result_type={result_type.kind}")
 
-        # Set expected type for this result expression (Fix 2)
+        # Set expected type for this result expression
         if result_type and result_type.kind == TypeKind.NUMBER:
             self._set_expected_type(expr, result_type)
-        else:
-            self._set_expected_type(expr, Type(TypeKind.NUMBER))
-
-        # Set expected types for operands BEFORE checking (fixes order bug)
-        # This ensures recursive calls can use the expected type as a hint
-        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = (
-            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        )
-        self._set_expected_type(expr.left, left_type_hint)
-        self._set_expected_type(expr.right, right_type_hint)
-
-        # Get expected types for operands (use as hints when inferred is UNKNOWN)
-        left_expected = self._get_expected_type(expr.left)
-        right_expected = self._get_expected_type(expr.right)
-
-        # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (
-            left_expected and left_expected.kind == TypeKind.NUMBER
-        )
-        right_is_number = right_type.kind == TypeKind.NUMBER or (
-            right_expected and right_expected.kind == TypeKind.NUMBER
-        )
-        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
-
-        if left_is_number and right_is_number and result_is_number:
-            left = self.generate(expr.left)
-            right = self.generate(expr.right)
-
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-
-            return f"{left} + {right}"
+        elif result_type:
+            self._set_expected_type(expr, result_type)
 
         # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, "AddOp")
@@ -446,6 +417,13 @@ class ExprGenerator:
             right_expected and right_expected.kind == TypeKind.NUMBER
         )
         result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
+
+        # If not both operands are native numbers, use luaValue operations
+        # This handles mixing luaValue with native types (e.g., double - luaValue)
+        if not (left_is_number and right_is_number):
+            left = self.generate_with_parentheses(expr.left, "SubOp")
+            right = self.generate_with_parentheses(expr.right, "SubOp")
+            return f"luaValue({left} - {right})"
 
         if left_is_number and right_is_number and result_is_number:
             left = self.generate(expr.left)
