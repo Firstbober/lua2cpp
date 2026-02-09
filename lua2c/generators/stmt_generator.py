@@ -310,15 +310,15 @@ class StmtGenerator:
         if body_statements and not isinstance(stmt.body.body[-1], astnodes.Return):
             body_statements.append("return luaValue();")
 
-        body_code = " ".join(body_statements)
+        body_code = "\n".join(body_statements)
         self.context.exit_function()
 
         params_str = ", ".join(param_decls)
-
+        state_type = self.context.get_state_type()
         if params_str:
-            return f"auto {func_name} = [=]({params_str}) {{ {body_code} }}"
+            return f"auto {func_name}({state_type} state, {params_str}) -> luaValue {{\n    {body_code}\n}}"
         else:
-            return f"auto {func_name} = [=]() {{ {body_code} }}"
+            return f"auto {func_name}({state_type} state) -> luaValue {{\n    {body_code}\n}}"
 
     def visit_LocalFunction(self, stmt: astnodes.LocalFunction) -> str:
         """Generate code for local function definition"""
@@ -337,15 +337,15 @@ class StmtGenerator:
         if body_statements and not isinstance(stmt.body.body[-1], astnodes.Return):
             body_statements.append("return luaValue();")
 
-        body_code = " ".join(body_statements)
+        body_code = "\n".join(body_statements)
         self.context.exit_function()
 
         params_str = ", ".join(param_decls)
-
+        state_type = self.context.get_state_type()
         if params_str:
-            return f"auto {func_name} = [=]({params_str}) {{ {body_code} }}"
+            return f"luaValue {func_name}({state_type} state, {params_str}) -> luaValue {{\n    {body_code}\n}}"
         else:
-            return f"auto {func_name} = [=]() {{ {body_code} }}"
+            return f"luaValue {func_name}({state_type} state) -> luaValue {{\n    {body_code}\n}}"
 
     def visit_Call(self, stmt: astnodes.Call) -> str:
         """Generate code for function call statement"""
