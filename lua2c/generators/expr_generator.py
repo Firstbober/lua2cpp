@@ -560,25 +560,11 @@ class ExprGenerator:
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
         """Generate code for equality operation"""
-        # Check if operands are native types (Bug #3 fix for typed globals)
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        
-        # If at least one is NUMBER, set expected type for both to generate native literals
-        if (left_type and left_type.kind == TypeKind.NUMBER or
-            right_type and right_type.kind == TypeKind.NUMBER):
-            # Set expected type to generate native literals
-            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
-            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
-            left = self.generate_with_parentheses(expr.left, "EqToOp")
-            right = self.generate_with_parentheses(expr.right, "EqToOp")
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-            return f"luaValue({left} == {right})"
-        
+        # Generate both operands and wrap comparison in luaValue
+        # This handles all type combinations: native numbers, luaValue, or mixed
         left = self.generate_with_parentheses(expr.left, "EqToOp")
         right = self.generate_with_parentheses(expr.right, "EqToOp")
-        return f"luaValue({left} == {right})"
+        return f"luaValue({left} == luaValue({right}))"
 
     def visit_NotEqToOp(self, expr: astnodes.NotEqToOp) -> str:
         """Generate code for inequality operation"""
