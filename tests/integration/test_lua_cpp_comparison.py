@@ -17,6 +17,11 @@ TEST_CONFIGS = [
     ("test_assign.lua", "test_assign_test", "Assignment test"),
     ("test_func.lua", "test_func_test", "Function definition test"),
     ("comparisons.lua", "comparisons_test", "Comparison operators test"),
+    ("sieve.lua", "sieve_test", "Sieve algorithm test"),
+    ("heapsort.lua", "heapsort_test", "Heapsort test"),
+    ("fixpoint-fact.lua", "fixpoint_fact_test", "Fixed-point factorial test"),
+    ("binary-trees.lua", "binary_trees_test", "Binary trees test"),
+    ("spectral-norm.lua", "spectralnorm_test", "Spectral norm benchmark test"),
 ]
 
 
