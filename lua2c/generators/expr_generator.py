@@ -582,7 +582,7 @@ class ExprGenerator:
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
         """Generate code for equality operation"""
-        # Check if operands are native types (Bug #3 fix for typed globals)
+        # Check if operands are native types
         left_type = self._get_inferred_expression_type(expr.left)
         right_type = self._get_inferred_expression_type(expr.right)
         
@@ -596,15 +596,16 @@ class ExprGenerator:
             right = self.generate_with_parentheses(expr.right, "EqToOp")
             self._clear_expected_type(expr.left)
             self._clear_expected_type(expr.right)
-            return f"luaValue({left} == {right})"
+            # Wrap only the result in luaValue, not both operands
+            return f"luaValue(({left} == {right}))"
         
         left = self.generate_with_parentheses(expr.left, "EqToOp")
         right = self.generate_with_parentheses(expr.right, "EqToOp")
-        return f"luaValue({left} == {right})"
+        return f"luaValue(({left} == {right}))"
 
     def visit_NotEqToOp(self, expr: astnodes.NotEqToOp) -> str:
         """Generate code for inequality operation"""
-        # Check if operands are native types (Bug #3 fix)
+        # Check if operands are native types
         left_type = self._get_inferred_expression_type(expr.left)
         right_type = self._get_inferred_expression_type(expr.right)
         
@@ -617,11 +618,12 @@ class ExprGenerator:
             right = self.generate_with_parentheses(expr.right, "NotEqToOp")
             self._clear_expected_type(expr.left)
             self._clear_expected_type(expr.right)
-            return f"luaValue({left} != {right})"
+            # Wrap only the result in luaValue, not both operands
+            return f"luaValue(({left} != {right}))"
         
         left = self.generate_with_parentheses(expr.left, "NotEqToOp")
         right = self.generate_with_parentheses(expr.right, "NotEqToOp")
-        return f"luaValue({left} != {right})"
+        return f"luaValue(({left} != {right}))"
 
     def visit_LessThanOp(self, expr: astnodes.LessThanOp) -> str:
         """Generate code for less-than operation"""
