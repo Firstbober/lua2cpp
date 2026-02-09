@@ -548,13 +548,18 @@ class StmtGenerator:
         if len(stmt.values) == 1:
             expr_code = self.expr_gen.generate(stmt.values[0])
 
-            if '\n' in expr_code:
+            # Check if expression is a lambda (contains [=]( or [&]( )
+            # Lambdas should not be wrapped in do-while block
+            is_lambda = '[=](' in expr_code or '[&](' in expr_code
+
+            if '\n' in expr_code and not is_lambda:
                 lines = expr_code.split('\n')
                 if len(lines) > 1:
                     temp_lines = lines[:-1]
                     final_expr = lines[-1].strip(';').strip()
                     temp_code = "    ".join(temp_lines)
-                    return f"do {{\n    {temp_code};\n    return {final_expr}\n}} while (0);"
+                    # temp_code already contains semicolons from each statement
+                    return f"do {{\n    {temp_code}\n    return {final_expr};\n}} while (0);"
             return f"return {expr_code};"
 
         # Multiple return values - wrap in std::vector

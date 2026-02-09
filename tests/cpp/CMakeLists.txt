@@ -115,3 +115,59 @@ add_custom_command(
 add_executable(comparisons_test comparisons_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/comparisons_module.cpp)
 target_include_directories(comparisons_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 target_link_libraries(comparisons_test lua2c_runtime)
+
+# Test for sieve.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/sieve_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/sieve_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/sieve_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/sieve.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/sieve.lua
+    VERBATIM
+)
+
+add_executable(sieve_test sieve_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/sieve_module.cpp)
+target_include_directories(sieve_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(sieve_test lua2c_runtime)
+
+# Test for heapsort.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/heapsort_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/heapsort_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/heapsort_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/heapsort.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/heapsort.lua
+    VERBATIM
+)
+
+add_executable(heapsort_test heapsort_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/heapsort_module.cpp)
+target_include_directories(heapsort_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(heapsort_test lua2c_runtime)
+
+# Test for fixpoint-fact.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/fixpoint_fact_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/fixpoint_fact_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/fixpoint_fact_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/fixpoint-fact.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/fixpoint-fact.lua
+    VERBATIM
+)
+
+add_executable(fixpoint_fact_test fixpoint_fact_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/fixpoint_fact_module.cpp)
+target_include_directories(fixpoint_fact_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(fixpoint_fact_test lua2c_runtime)
+
+# Test for binary-trees.lua
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/generated/binary_trees_state.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/binary_trees_module.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/generated/binary_trees_module.cpp
+    COMMAND python -m lua2c.cli.main ${CMAKE_CURRENT_SOURCE_DIR}/lua/binary-trees.lua --lib --output-dir ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lua/binary-trees.lua
+    VERBATIM
+)
+
+add_executable(binary_trees_test binary_trees_main.cpp ${CMAKE_CURRENT_SOURCE_DIR}/generated/binary_trees_module.cpp)
+target_include_directories(binary_trees_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+target_link_libraries(binary_trees_test lua2c_runtime)

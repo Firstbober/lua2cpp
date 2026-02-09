@@ -44,7 +44,30 @@ def test_lua_cpp_outputs_match(lua_script, cpp_executable, description):
         pytest.skip(f"Lua script not found: {lua_file}")
 
     if not cpp_exe.exists():
-        pytest.skip(f"C++ executable not found: {cpp_exe}. Build it first with make {cpp_executable}")
+        build_dir = Path("tests/cpp/build")
+        if not build_dir.exists():
+            build_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            cmake_cache = build_dir / "CMakeCache.txt"
+            if not cmake_cache.exists():
+                subprocess.run(
+                    ["cmake", ".."],
+                    cwd=str(build_dir),
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+
+            subprocess.run(
+                ["cmake", "--build", ".", "--target", cpp_executable],
+                cwd=str(build_dir),
+                capture_output=True,
+                text=True,
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            pytest.skip(f"Failed to build {cpp_executable}: {e.stderr}")
 
     # Run Lua script
     lua_result = subprocess.run(
@@ -104,7 +127,30 @@ def test_spectral_norm_outputs_match():
         pytest.skip(f"Lua script not found: {lua_script}")
 
     if not cpp_executable.exists():
-        pytest.skip(f"C++ executable not found: {cpp_executable}. Build it first with make spectralnorm_test")
+        build_dir = Path("tests/cpp/build")
+        if not build_dir.exists():
+            build_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            cmake_cache = build_dir / "CMakeCache.txt"
+            if not cmake_cache.exists():
+                subprocess.run(
+                    ["cmake", ".."],
+                    cwd=str(build_dir),
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+
+            subprocess.run(
+                ["cmake", "--build", ".", "--target", "spectralnorm_test"],
+                cwd=str(build_dir),
+                capture_output=True,
+                text=True,
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            pytest.skip(f"Failed to build spectralnorm_test: {e.stderr}")
 
     n_value = "100"
 
