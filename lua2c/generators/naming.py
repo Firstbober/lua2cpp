@@ -1,19 +1,39 @@
 """Naming scheme for Lua2C transpiler
 
-Implements the naming convention:
+Implements a naming convention:
 - Modules: _l2c__<dir>__<file>_export
 - Functions: _l2c__<dir>__<file>_<method>
+- C++ Keywords: mangled by appending _lua suffix
+
+Handles C identifier sanitization and keyword collision avoidance.
 """
 
 from pathlib import Path
 import re
-
 
 class NamingScheme:
     """Handles C identifier generation for Lua constructs"""
 
     PREFIX = "_l2c__"
     MODULE_EXPORT_SUFFIX = "_export"
+
+    # C++ reserved keywords that need mangling
+    CPP_KEYWORDS = {
+        'alignas', 'and', 'and_eq', 'asm', 'auto', 'bitand', 'bitor',
+        'bitxor', 'bool', 'break', 'case', 'catch', 'char', 'char8_t',
+        'char16_t', 'class', 'compl', 'const', 'const_cast', 'consteval',
+        'constexpr', 'continue', 'decltype', 'default', 'delete', 'do', 'double',
+        'dynamic_cast', 'else', 'enum', 'explicit', 'export', 'extern',
+        'false', 'float', 'for', 'friend', 'goto', 'if', 'inline', 'int',
+        'long', 'long double', 'mutable', 'namespace', 'new', 'noexcept',
+        'not', 'nullptr', 'operator', 'or', 'or_eq', 'private', 'protected',
+        'public', 'register', 'reinterpret_cast', 'return', 'short', 'signed',
+        'sizeof', 'static', 'static_assert', 'struct', 'switch', 'template',
+        'this', 'thread_local', 'throw', 'true', 'try', 'typedef', 'typeid',
+        'typename', 'union', 'unsigned', 'using', 'virtual', 'void', 'volatile',
+        'wchar_t', 'while', 'xor', 'xor_eq',
+        'main',  # Special case for Lua main() functions
+    }
 
     @staticmethod
     def sanitize_path(path: str, add_prefix: bool = False) -> str:
@@ -61,19 +81,26 @@ class NamingScheme:
         return f"{NamingScheme.PREFIX}{sanitized}{NamingScheme.MODULE_EXPORT_SUFFIX}"
 
     @staticmethod
-    def function_name(module_path: str, function_name: str) -> str:
-        """Generate a function name
+    def mangle_function_name(func_name: str, is_local: bool = True) -> str:
+        """Mangle function name if it conflicts with C++ keywords
 
         Args:
-            module_path: Module filesystem path
-            function_name: Lua function name
+            func_name: Original Lua function name
+            is_local: Whether this is a local function (not the main entry point)
 
         Returns:
-            C function name (e.g., "_l2c__src__core__utils_myFunction")
+            Mangled function name (with _lua suffix if needed)
         """
-        sanitized = NamingScheme.sanitize_path(module_path)
-        sanitized_function = function_name.replace("-", "_")
-        return f"{NamingScheme.PREFIX}{sanitized}_{sanitized_function}"
+        # Local functions don't need mangling unless it's 'main' at module level
+        # For module-level main functions, we always mangle to avoid C++ keyword
+        if not is_local and func_name.lower() == 'main':
+            return f"{func_name}_lua"
+        
+        # For other C++ keywords, add _lua suffix
+        if func_name.lower() in NamingScheme.CPP_KEYWORDS:
+            return f"{func_name}_lua"
+        
+        return func_name
 
     @staticmethod
     def variable_name(scope_path: str, var_name: str) -> str:

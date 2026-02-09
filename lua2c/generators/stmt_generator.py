@@ -301,6 +301,11 @@ class StmtGenerator:
     def visit_Function(self, stmt: astnodes.Function) -> str:
         """Generate code for global function definition"""
         func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+        
+        # Mangle function name if it conflicts with C++ keywords
+        from lua2c.generators.naming import NamingScheme
+        func_name = NamingScheme.mangle_function_name(func_name, is_local=False)
+        
         self.context.enter_function()
 
         param_decls = []
@@ -328,6 +333,11 @@ class StmtGenerator:
     def visit_LocalFunction(self, stmt: astnodes.LocalFunction) -> str:
         """Generate code for local function definition"""
         func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+        
+        # Mangle function name if it conflicts with C++ keywords
+        from lua2c.generators.naming import NamingScheme
+        func_name = NamingScheme.mangle_function_name(func_name, is_local=True)
+        
         self.context.enter_function()
 
         param_decls = []
