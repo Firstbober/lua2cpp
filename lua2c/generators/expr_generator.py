@@ -1163,7 +1163,49 @@ class ExprGenerator:
 
     def visit_AnonymousFunction(self, expr: astnodes.AnonymousFunction) -> str:
         """Generate code for anonymous function"""
-        return "luaValue::new_closure()"
+        type_inferencer = self.context.get_type_inferencer()
+
+        # Handle parameters
+        param_names = []
+        for i, param in enumerate(expr.args):
+            if hasattr(param, 'id'):
+                param_name = param.id
+                # Skip define_parameter for anonymous functions to avoid scope conflicts
+                # self.context.define_parameter(param_name, i)
+
+                if type_inferencer:
+                    inferred_type = type_inferencer.get_type(param_name)
+                    if inferred_type:
+                        symbol = self.context.resolve_symbol(param_name)
+                        if symbol:
+                            symbol.inferred_type = inferred_type
+
+                param_names.append(param_name)
+
+        # Generate function body
+        body_statements = []
+        for s in expr.body.body:
+            # Convert statement to expression (for return)
+            from lua2c.generators.stmt_generator import StmtGenerator
+            stmt_gen = StmtGenerator(self.context)
+            code = stmt_gen.generate(s)
+            body_statements.append(code)
+
+        # Add return if needed (for single-expression body)
+        if not body_statements:
+            body_statements.append("return luaValue();")
+
+        # Join statements with space for lambdas (no semicolons between statements)
+        body_code = " ".join(body_statements)
+
+        # Generate lambda-style function
+        # Format: [=](params) { body }
+        params_str = ", ".join(param_names)
+
+        if params_str:
+            return f"[=]({params_str}) {{ {body_code} }}"
+        else:
+            return f"[=]() {{ {body_code} }}"
 
     def visit_Dots(self, expr: astnodes.Dots) -> str:
         """Generate code for varargs"""

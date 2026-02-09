@@ -543,7 +543,7 @@ class StmtGenerator:
     def visit_Return(self, stmt: astnodes.Return) -> str:
         """Generate code for return statement"""
         if not stmt.values:
-            return "return luaValue();"
+            return "return luaValue()"
 
         if len(stmt.values) == 1:
             expr_code = self.expr_gen.generate(stmt.values[0])
@@ -554,8 +554,7 @@ class StmtGenerator:
                     temp_lines = lines[:-1]
                     final_expr = lines[-1].strip(';').strip()
                     temp_code = "    ".join(temp_lines)
-                    return f"do {{\n    {temp_code};\n    return {final_expr};\n}} while (0);"
-
+                    return f"do {{\n    {temp_code};\n    return {final_expr}\n}} while (0);"
             return f"return {expr_code};"
 
         # Multiple return values - wrap in std::vector
