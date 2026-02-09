@@ -129,17 +129,15 @@ class ExprGenerator:
         Returns:
             Inferred type
         """
-        # Check AST annotation first
         type_info = ASTAnnotationStore.get_type(expr)
         if type_info is not None:
             return type_info
-        
-        # Bug #3 fix: For Name nodes, check symbol's inferred_type
+
         if isinstance(expr, astnodes.Name):
             symbol = self.context.resolve_symbol(expr.id)
             if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
                 return symbol.inferred_type
-        
+
         return Type(TypeKind.UNKNOWN)
 
     def _set_expected_type(self, expr: astnodes.Node, type_hint: Optional[Type]) -> None:
@@ -250,12 +248,7 @@ class ExprGenerator:
             C++ code for number literal
         """
         value = expr.n
-        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
-
-        if not self._should_use_lua_value(type_hint) and type_hint:
-            return f"{value}"
-
-        return f"luaValue({value})"
+        return f"{value}"
 
     def visit_String(self, expr: astnodes.String) -> str:
         """Generate code for string literal
@@ -268,12 +261,7 @@ class ExprGenerator:
         """
         string_value = expr.s.decode() if isinstance(expr.s, bytes) else expr.s
         escaped = string_value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
-        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
-
-        if not self._should_use_lua_value(type_hint) and type_hint:
-            return f'std::string("{escaped}")'
-
-        return f'luaValue("{escaped}")'
+        return f'"{escaped}"'
 
     def visit_TrueExpr(self, expr: astnodes.TrueExpr) -> str:
         """Generate code for true
@@ -284,12 +272,7 @@ class ExprGenerator:
         Returns:
             C++ code for true
         """
-        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
-
-        if not self._should_use_lua_value(type_hint) and type_hint:
-            return "true"
-
-        return "luaValue(true)"
+        return "true"
 
     def visit_FalseExpr(self, expr: astnodes.FalseExpr) -> str:
         """Generate code for false
@@ -300,12 +283,7 @@ class ExprGenerator:
         Returns:
             C++ code for false
         """
-        type_hint = self._get_expected_type(expr) or self._get_symbol_type_from_context(expr)
-
-        if not self._should_use_lua_value(type_hint) and type_hint:
-            return "false"
-
-        return "luaValue(false)"
+        return "false"
 
     def _get_symbol_type_from_context(self, expr: astnodes.Node) -> Optional[Type]:
         """Get type hint from surrounding context"""
@@ -367,178 +345,27 @@ class ExprGenerator:
 
     def visit_AddOp(self, expr: astnodes.AddOp) -> str:
         """Generate code for addition operation"""
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        # Prefer inferred types over parent's expected type (fix for nested expressions)
-        result_type = self._get_inferred_expression_type(expr) or self._get_expected_type(expr)
-        print(f"DEBUG: visit_AddOp: left_type={left_type.kind}, right_type={right_type.kind}, result_type={result_type.kind}")
-
-        # Set expected type for this result expression
-        if result_type and result_type.kind == TypeKind.NUMBER:
-            self._set_expected_type(expr, result_type)
-        elif result_type:
-            self._set_expected_type(expr, result_type)
-
-        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, "AddOp")
         right = self.generate_with_parentheses(expr.right, "AddOp")
-        return f"{left} + {right}"
+        return f"luaValue(luaValue({left}) + luaValue({right}))"
 
     def visit_SubOp(self, expr: astnodes.SubOp) -> str:
         """Generate code for subtraction operation"""
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
-
-        # Set expected type for this result expression (Fix 2)
-        if result_type and result_type.kind == TypeKind.NUMBER:
-            self._set_expected_type(expr, result_type)
-        else:
-            self._set_expected_type(expr, Type(TypeKind.NUMBER))
-
-        # Set expected types for operands BEFORE checking (fixes order bug)
-        # This ensures recursive calls can use the expected type as a hint
-        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = (
-            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        )
-        self._set_expected_type(expr.left, left_type_hint)
-        self._set_expected_type(expr.right, right_type_hint)
-
-        # Get expected types for operands (use as hints when inferred is UNKNOWN)
-        left_expected = self._get_expected_type(expr.left)
-        right_expected = self._get_expected_type(expr.right)
-
-        # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (
-            left_expected and left_expected.kind == TypeKind.NUMBER
-        )
-        right_is_number = right_type.kind == TypeKind.NUMBER or (
-            right_expected and right_expected.kind == TypeKind.NUMBER
-        )
-        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
-
-        # If not both operands are native numbers, use luaValue operations
-        # This handles mixing luaValue with native types (e.g., double - luaValue)
-        if not (left_is_number and right_is_number):
-            left = self.generate_with_parentheses(expr.left, "SubOp")
-            right = self.generate_with_parentheses(expr.right, "SubOp")
-            return f"luaValue({left} - {right})"
-
-        if left_is_number and right_is_number and result_is_number:
-            left = self.generate(expr.left)
-            right = self.generate(expr.right)
-
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-
-            return f"{left} - {right}"
-
-        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, "SubOp")
         right = self.generate_with_parentheses(expr.right, "SubOp")
-        return f"{left} - {right}"
+        return f"luaValue(luaValue({left}) - luaValue({right}))"
 
     def visit_MultOp(self, expr: astnodes.MultOp) -> str:
         """Generate code for multiplication operation"""
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
-
-        # Set expected type for this result expression (Fix 2)
-        if result_type and result_type.kind == TypeKind.NUMBER:
-            self._set_expected_type(expr, result_type)
-        else:
-            self._set_expected_type(expr, Type(TypeKind.NUMBER))
-
-        # Set expected types for operands BEFORE checking (fixes order bug)
-        # This ensures recursive calls can use the expected type as a hint
-        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = (
-            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        )
-        self._set_expected_type(expr.left, left_type_hint)
-        self._set_expected_type(expr.right, right_type_hint)
-
-        # Get expected types for operands (use as hints when inferred is UNKNOWN)
-        left_expected = self._get_expected_type(expr.left)
-        right_expected = self._get_expected_type(expr.right)
-
-        # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (
-            left_expected and left_expected.kind == TypeKind.NUMBER
-        )
-        right_is_number = right_type.kind == TypeKind.NUMBER or (
-            right_expected and right_expected.kind == TypeKind.NUMBER
-        )
-        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
-
-        if left_is_number and right_is_number and result_is_number:
-            # Add parentheses for subtractions/divisions to preserve precedence
-            left = self.generate(expr.left)
-            if isinstance(expr.left, (astnodes.SubOp, astnodes.AddOp, astnodes.FloatDivOp)):
-                left = f"({left})"
-            right = self.generate(expr.right)
-            if isinstance(expr.right, (astnodes.SubOp, astnodes.AddOp, astnodes.FloatDivOp)):
-                right = f"({right})"
-
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-
-            return f"{left} * {right}"
-
-        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, "MultOp")
         right = self.generate_with_parentheses(expr.right, "MultOp")
-        return f"{left} * {right}"
+        return f"luaValue(luaValue({left}) * luaValue({right}))"
 
     def visit_FloatDivOp(self, expr: astnodes.FloatDivOp) -> str:
         """Generate code for division operation"""
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
-
-        # Set expected type for this result expression (Fix 2)
-        if result_type and result_type.kind == TypeKind.NUMBER:
-            self._set_expected_type(expr, result_type)
-        else:
-            self._set_expected_type(expr, Type(TypeKind.NUMBER))
-
-        # Set expected types for operands BEFORE checking (fixes order bug)
-        # This ensures recursive calls can use the expected type as a hint
-        left_type_hint = left_type if left_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        right_type_hint = (
-            right_type if right_type.kind == TypeKind.NUMBER else Type(TypeKind.NUMBER)
-        )
-        self._set_expected_type(expr.left, left_type_hint)
-        self._set_expected_type(expr.right, right_type_hint)
-
-        # Get expected types for operands (use as hints when inferred is UNKNOWN)
-        left_expected = self._get_expected_type(expr.left)
-        right_expected = self._get_expected_type(expr.right)
-
-        # If both operands and result are numbers (or expected to be), use native operator
-        left_is_number = left_type.kind == TypeKind.NUMBER or (
-            left_expected and left_expected.kind == TypeKind.NUMBER
-        )
-        right_is_number = right_type.kind == TypeKind.NUMBER or (
-            right_expected and right_expected.kind == TypeKind.NUMBER
-        )
-        result_is_number = not result_type or result_type.kind == TypeKind.NUMBER
-
-        if left_is_number and right_is_number and result_is_number:
-            left = self.generate(expr.left)
-            right = self.generate(expr.right)
-
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-
-            return f"{left} / {right}"
-
-        # Otherwise use luaValue operator
         left = self.generate_with_parentheses(expr.left, "FloatDivOp")
         right = self.generate_with_parentheses(expr.right, "FloatDivOp")
-        return f"{left} / {right}"
+        return f"luaValue(luaValue({left}) / luaValue({right}))"
 
     def visit_FloorDivOp(self, expr: astnodes.FloorDivOp) -> str:
         """Generate code for floor division operation"""
@@ -550,7 +377,7 @@ class ExprGenerator:
         """Generate code for modulo operation"""
         left = self.generate_with_parentheses(expr.left, "ModOp")
         right = self.generate_with_parentheses(expr.right, "ModOp")
-        return f"{left} % {right}"
+        return f"luaValue(luaValue({left}) % luaValue({right}))"
 
     def visit_ExpoOp(self, expr: astnodes.ExpoOp) -> str:
         """Generate code for exponentiation operation"""
@@ -560,129 +387,39 @@ class ExprGenerator:
 
     def visit_EqToOp(self, expr: astnodes.EqToOp) -> str:
         """Generate code for equality operation"""
-        # Generate both operands and wrap comparison in luaValue
-        # This handles all type combinations: native numbers, luaValue, or mixed
         left = self.generate_with_parentheses(expr.left, "EqToOp")
         right = self.generate_with_parentheses(expr.right, "EqToOp")
-        return f"luaValue({left} == luaValue({right}))"
+        return f"luaValue(luaValue({left}) == luaValue({right}))"
 
     def visit_NotEqToOp(self, expr: astnodes.NotEqToOp) -> str:
         """Generate code for inequality operation"""
-        # Check if operands are native types (Bug #3 fix)
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        
-        # If at least one is NUMBER, set expected type for both
-        if (left_type and left_type.kind == TypeKind.NUMBER or
-            right_type and right_type.kind == TypeKind.NUMBER):
-            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
-            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
-            left = self.generate_with_parentheses(expr.left, "NotEqToOp")
-            right = self.generate_with_parentheses(expr.right, "NotEqToOp")
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-            return f"luaValue({left} != {right})"
-        
         left = self.generate_with_parentheses(expr.left, "NotEqToOp")
         right = self.generate_with_parentheses(expr.right, "NotEqToOp")
-        return f"luaValue({left} != {right})"
+        return f"luaValue(luaValue({left}) != luaValue({right}))"
 
     def visit_LessThanOp(self, expr: astnodes.LessThanOp) -> str:
         """Generate code for less-than operation"""
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        result_type = self._get_expected_type(expr) or self._get_inferred_expression_type(expr)
-        
-        # If at least one is NUMBER, set expected type for both
-        if (left_type and left_type.kind == TypeKind.NUMBER or
-            right_type and right_type.kind == TypeKind.NUMBER):
-            self._set_expected_type(expr, result_type)
-            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
-            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
-            left = self.generate_with_parentheses(expr.left, "LessThanOp")
-            right = self.generate_with_parentheses(expr.right, "LessThanOp")
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-            return f"luaValue({left} < {right})"
-        
-        # If not both operands are native numbers, use luaValue operations
-        # This handles mixing luaValue with native types (e.g., luaValue < int, int < luaValue)
-        if not (left_type and left_type.kind == TypeKind.NUMBER and
-                right_type and right_type.kind == TypeKind.NUMBER):
-            left = self.generate_with_parentheses(expr.left, "LessThanOp")
-            right = self.generate_with_parentheses(expr.right, "LessThanOp")
-            return f"luaValue({left} < {right})"
-        
-        # If not both operands are native numbers, use luaValue operations
-        # This handles mixing luaValue with native types (e.g., double < luaValue)
-        if not (left_type and left_type.kind == TypeKind.NUMBER or
-                right_type and right_type.kind == TypeKind.NUMBER):
-            left = self.generate_with_parentheses(expr.left, "LessThanOp")
-            right = self.generate_with_parentheses(expr.right, "LessThanOp")
-            return f"luaValue({left} < {right})"
+        left = self.generate_with_parentheses(expr.left, "LessThanOp")
+        right = self.generate_with_parentheses(expr.right, "LessThanOp")
+        return f"luaValue(luaValue({left}) < luaValue({right}))"
 
     def visit_LessOrEqThanOp(self, expr: astnodes.LessOrEqThanOp) -> str:
         """Generate code for less-than-or-equal operation"""
-        # Check if operands are native types (Bug #3 fix)
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        
-        # If at least one is NUMBER, set expected type for both
-        if (left_type and left_type.kind == TypeKind.NUMBER or
-            right_type and right_type.kind == TypeKind.NUMBER):
-            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
-            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
-            left = self.generate_with_parentheses(expr.left, "LessOrEqThanOp")
-            right = self.generate_with_parentheses(expr.right, "LessOrEqThanOp")
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-            return f"luaValue({left} <= {right})"
-        
         left = self.generate_with_parentheses(expr.left, "LessOrEqThanOp")
         right = self.generate_with_parentheses(expr.right, "LessOrEqThanOp")
-        return f"luaValue({left} <= {right})"
+        return f"luaValue(luaValue({left}) <= luaValue({right}))"
 
     def visit_GreaterThanOp(self, expr: astnodes.GreaterThanOp) -> str:
         """Generate code for greater-than operation"""
-        # Check if operands are native types (Bug #3 fix)
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        
-        # If at least one is NUMBER, set expected type for both
-        if (left_type and left_type.kind == TypeKind.NUMBER or
-            right_type and right_type.kind == TypeKind.NUMBER):
-            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
-            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
-            left = self.generate_with_parentheses(expr.left, "GreaterThanOp")
-            right = self.generate_with_parentheses(expr.right, "GreaterThanOp")
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-            return f"luaValue({left} > {right})"
-        
         left = self.generate_with_parentheses(expr.left, "GreaterThanOp")
         right = self.generate_with_parentheses(expr.right, "GreaterThanOp")
-        return f"luaValue({left} > {right})"
+        return f"luaValue(luaValue({left}) > luaValue({right}))"
 
     def visit_GreaterOrEqThanOp(self, expr: astnodes.GreaterOrEqThanOp) -> str:
         """Generate code for greater-than-or-equal operation"""
-        # Check if operands are native types (Bug #3 fix)
-        left_type = self._get_inferred_expression_type(expr.left)
-        right_type = self._get_inferred_expression_type(expr.right)
-        
-        # If at least one is NUMBER, set expected type for both
-        if (left_type and left_type.kind == TypeKind.NUMBER or
-            right_type and right_type.kind == TypeKind.NUMBER):
-            self._set_expected_type(expr.left, Type(TypeKind.NUMBER))
-            self._set_expected_type(expr.right, Type(TypeKind.NUMBER))
-            left = self.generate_with_parentheses(expr.left, "GreaterOrEqThanOp")
-            right = self.generate_with_parentheses(expr.right, "GreaterOrEqThanOp")
-            self._clear_expected_type(expr.left)
-            self._clear_expected_type(expr.right)
-            return f"luaValue({left} >= {right})"
-        
         left = self.generate_with_parentheses(expr.left, "GreaterOrEqThanOp")
         right = self.generate_with_parentheses(expr.right, "GreaterOrEqThanOp")
-        return f"luaValue({left} >= {right})"
+        return f"luaValue(luaValue({left}) >= luaValue({right}))"
 
     def visit_Concat(self, expr: astnodes.Concat) -> str:
         """Generate code for string concatenation"""

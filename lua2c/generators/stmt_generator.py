@@ -4,6 +4,7 @@ Translates Lua statements to C++ code.
 Handles all statement types: assignment, control flow, loops, etc.
 """
 
+from typing import Optional
 from lua2c.core.context import TranslationContext
 from lua2c.core.type_system import Type, TypeKind
 from lua2c.core.type_conversion import TypeConverter
@@ -27,6 +28,54 @@ class StmtGenerator:
         """
         self.context = context
         self.expr_gen = ExprGenerator(context)
+
+    def _maybe_add_type_conversion(self, value_code: str, target_type: Optional[Type], value_expr: astnodes.Node) -> str:
+        """Add type conversion from luaValue to primitive type if needed
+
+        When assigning a luaValue expression to a primitive type (double, int),
+        we need to add .as_number() conversion.
+
+        Args:
+            value_code: Generated C++ code for the value expression
+            target_type: Target type for the assignment
+            value_expr: Original AST node for the value expression
+
+        Returns:
+            value_code with conversion added if needed
+        """
+        # Check if target type is a numeric primitive type
+        if target_type and target_type.kind == TypeKind.NUMBER:
+            # Check if the value expression is one that returns luaValue
+            # Arithmetic operations, comparisons, etc. all return luaValue
+            luavalue_returning_exprs = (
+                astnodes.AddOp,
+                astnodes.SubOp,
+                astnodes.MultOp,
+                astnodes.FloatDivOp,
+                astnodes.ModOp,
+                astnodes.ExpoOp,
+                astnodes.EqToOp,
+                astnodes.NotEqToOp,
+                astnodes.LessThanOp,
+                astnodes.LessOrEqThanOp,
+                astnodes.GreaterThanOp,
+                astnodes.GreaterOrEqThanOp,
+                astnodes.AndLoOp,
+                astnodes.OrLoOp,
+                astnodes.Call,
+            )
+
+            if isinstance(value_expr, luavalue_returning_exprs):
+                # The expression returns luaValue, need to convert
+                return f"{value_code}.as_number()"
+
+            # Also check if the generated code explicitly starts with "luaValue("
+            # This catches cases where the value is wrapped but we didn't catch it above
+            stripped = value_code.strip()
+            if stripped.startswith("luaValue("):
+                return f"{value_code}.as_number()"
+
+        return value_code
 
     def generate(self, stmt: astnodes.Node) -> str:
         """Generate C++ code for a statement
@@ -116,6 +165,8 @@ class StmtGenerator:
                 else:
                     value_code = self.expr_gen.generate(value)
 
+                # Add type conversion if assigning luaValue to primitive type
+                value_code = self._maybe_add_type_conversion(value_code, expected_type, value)
                 code_lines.append(f"{target_code} = {value_code};")
 
         return "\n".join(code_lines)
@@ -244,6 +295,8 @@ class StmtGenerator:
                             self.expr_gen._set_expected_type(value, inferred_type)
                             value_code = self.expr_gen.generate(value)
                             self.expr_gen._clear_expected_type(value)
+                            # Add type conversion if assigning luaValue to primitive type
+                            value_code = self._maybe_add_type_conversion(value_code, inferred_type, value)
                             code_lines.append(f"{cpp_type} {var_name} = {value_code};")
                     else:
                         # Unknown/variant type - check for typed array reads or arithmetic
@@ -265,12 +318,16 @@ class StmtGenerator:
                             # luaValue doesn't support arithmetic with native types
                             if inferred_type and inferred_type.kind == TypeKind.UNKNOWN:
                                 cpp_type = "luaValue"
+                                target_type = None
                             else:
                                 cpp_type = "double"
-                                use_type = element_type_from_array if element_type_from_array else Type(TypeKind.NUMBER)
+                                target_type = Type(TypeKind.NUMBER)
+                                use_type = element_type_from_array if element_type_from_array else target_type
                                 self.expr_gen._set_expected_type(value, use_type)
                             value_code = self.expr_gen.generate(value)
                             self.expr_gen._clear_expected_type(value)
+                            # Add type conversion if assigning luaValue to primitive type
+                            value_code = self._maybe_add_type_conversion(value_code, target_type, value)
                             code_lines.append(f"{cpp_type} {var_name} = {value_code};")
                         else:
                             value_code = self.expr_gen.generate(value)
@@ -456,24 +513,21 @@ class StmtGenerator:
         target_name = stmt.target.id if hasattr(stmt.target, 'id') else "i"
         self.context.enter_block()
         
-        # Get inferred type for loop variable and define it
         target_type = None
         type_inferencer = self.context.get_type_inferencer()
         if type_inferencer:
             target_type = type_inferencer.get_type(target_name)
         
-        # Define local with inferred type (Fix 1)
         self.context.define_local(target_name, inferred_type=target_type)
         
-        # Fall back to symbol's inferred_type
         if not target_type:
             symbol = self.context.resolve_symbol(target_name)
             if symbol and hasattr(symbol, 'inferred_type') and symbol.inferred_type:
                 target_type = symbol.inferred_type
         
-        # Generate start/stop/step with type hints
-        if target_type and target_type.kind == TypeKind.NUMBER:
-            # Use type hints to generate native literals
+        use_native_double = target_type and target_type.kind == TypeKind.NUMBER
+        
+        if use_native_double:
             self.expr_gen._set_expected_type(stmt.start, target_type)
             start = self.expr_gen.generate(stmt.start)
             self.expr_gen._clear_expected_type(stmt.start)
@@ -488,19 +542,19 @@ class StmtGenerator:
         if stmt.step:
             if isinstance(stmt.step, (int, float)):
                 step_val = stmt.step
-                if target_type and target_type.kind == TypeKind.NUMBER:
+                if use_native_double:
                     step = f"{step_val}" if step_val == 1 else f"{step_val}"
                 else:
                     step = f"luaValue({step_val})"
             else:
-                if target_type and target_type.kind == TypeKind.NUMBER:
+                if use_native_double:
                     self.expr_gen._set_expected_type(stmt.step, target_type)
                     step = self.expr_gen.generate(stmt.step)
                     self.expr_gen._clear_expected_type(stmt.step)
                 else:
                     step = self.expr_gen.generate(stmt.step)
         else:
-            if target_type and target_type.kind == TypeKind.NUMBER:
+            if use_native_double:
                 step = "1"
             else:
                 step = "luaValue(1)"
@@ -508,14 +562,12 @@ class StmtGenerator:
         body = "\n    ".join([self.generate(s) for s in stmt.body.body])
         self.context.exit_block()
         
-        # Use native double type if inferred type is NUMBER
-        if target_type and target_type.kind == TypeKind.NUMBER:
+        if use_native_double:
             if step == "1":
-                return f"for (double {target_name} = {start}; {target_name} <= {stop}; {target_name}++) {{\n    {body}\n}}"
+                return f"for (double {target_name} = {start}; {target_name} <= luaValue({stop}).as_number(); {target_name}++) {{\n    {body}\n}}"
             else:
-                return f"for (double {target_name} = {start}; {target_name} <= {stop}; {target_name} += {step}) {{\n    {body}\n}}"
+                return f"for (double {target_name} = {start}; {target_name} <= luaValue({stop}).as_number(); {target_name} += {step}) {{\n    {body}\n}}"
         else:
-            # Fallback to luaValue for non-numeric loops
             if step == "luaValue(1)":
                 return f"for (luaValue {target_name} = {start}; {target_name} <= {stop}; {target_name}++) {{\n    {body}\n}}"
             else:
