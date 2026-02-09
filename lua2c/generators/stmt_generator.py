@@ -276,6 +276,10 @@ class StmtGenerator:
                                 lines = value_code.split('\n')
                                 code_lines.extend([line + ';' if not line.endswith(';') else line for line in lines[:-1]])
                                 value_code = lines[-1].strip()
+                            if isinstance(value, astnodes.Call) and isinstance(value.func, astnodes.Name):
+                                symbol = self.context.resolve_symbol(value.func.id)
+                                if symbol and not symbol.is_global and 'luaValue(' not in value_code:
+                                    value_code = f'luaValue({value_code})'
                             code_lines.append(f"luaValue {var_name} = {value_code};")
                 else:
                     # Complex target (not just Name) - use luaValue
