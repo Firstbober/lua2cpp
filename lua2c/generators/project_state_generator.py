@@ -158,7 +158,7 @@ class ProjectStateGenerator:
             List of C++ member declaration lines
         """
         lines = []
-        standalone_funcs = ["print", "tonumber"]
+        standalone_funcs = ["print", "tonumber", "assert"]
 
         for func_name in sorted(standalone_funcs):
             sig = self.registry.get_function_signature(func_name)

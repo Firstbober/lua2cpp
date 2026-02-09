@@ -162,6 +162,11 @@ class GlobalTypeRegistry:
             cpp_signature="void(*)(const std::vector<luaValue>&)",
             always_variadic=True,
         ),
+        "assert": FunctionSignature(
+            return_type="luaValue",
+            param_types=["const luaValue&"],
+            cpp_signature="luaValue(*)(const luaValue&)",
+        ),
     }
 
     # Module organization

@@ -294,8 +294,48 @@ class StmtGenerator:
         return "\n".join(code_lines)
 
     def visit_Function(self, stmt: astnodes.Function) -> str:
-        """Generate code for anonymous function"""
-        raise NotImplementedError("Anonymous functions not yet implemented")
+        """Generate code for global function definition"""
+        func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+        self.context.enter_function()
+
+        # Handle parameters
+        param_names = []
+        type_inferencer = self.context.get_type_inferencer()
+        for i, param in enumerate(stmt.args):
+            if hasattr(param, 'id'):
+                param_name = param.id
+                self.context.define_parameter(param_name, i)
+
+                # Bug #3 fix: Set inferred type on parameter symbol
+                if type_inferencer:
+                    inferred_type = type_inferencer.get_type(param_name)
+                    if inferred_type:
+                        symbol = self.context.resolve_symbol(param_name)
+                        if symbol:
+                            symbol.inferred_type = inferred_type
+
+                param_names.append(param_name)
+
+        # Generate function body
+        body_statements = [self.generate(s) for s in stmt.body.body]
+
+        # Add return statement if function doesn't end with one
+        if body_statements and not isinstance(stmt.body.body[-1], astnodes.Return):
+            body_statements.append("return luaValue();")
+
+        body_code = "\n".join(body_statements)
+        self.context.exit_function()
+
+        # Bug #3 fix: Use auto&& (forwarding reference) for parameters
+        # This allows binding to both lvalues and rvalues, enabling:
+        # - Reassignment (since && can be moved from)
+        # - Passing temporary expressions like M - 1 or 1
+        params_str = ", ".join([f"auto&& {p}" for p in param_names])
+        state_type = self.context.get_state_type()
+        if params_str:
+            return f"auto {func_name}({state_type} state, {params_str}) {{\n    {body_code}\n}}"
+        else:
+            return f"auto {func_name}({state_type} state) {{\n    {body_code}\n}}"
 
     def visit_LocalFunction(self, stmt: astnodes.LocalFunction) -> str:
         """Generate code for local function definition"""
@@ -538,3 +578,7 @@ class StmtGenerator:
         """Generate code for do block"""
         body = "\n    ".join([self.generate(s) for s in stmt.body.body])
         return f"do {{\n    {body}\n}} while (0);"
+
+    def visit_SemiColon(self, stmt: astnodes.SemiColon) -> str:
+        """Generate code for empty statement (semicolon)"""
+        return ""

@@ -76,6 +76,18 @@ inline void print(const std::vector<luaValue>& args) {
 }
 
 // ============================================================================
+// Assert Function
+// ============================================================================
+inline luaValue assert(const luaValue& condition) {
+    if (!condition.is_truthy()) {
+        std::cerr << "Assertion failed!" << std::endl;
+        std::cerr << "Value: " << condition.as_string() << std::endl;
+        std::exit(1);
+    }
+    return condition;
+}
+
+// ============================================================================
 // IO Library
 // ============================================================================
 template<typename... Args>
