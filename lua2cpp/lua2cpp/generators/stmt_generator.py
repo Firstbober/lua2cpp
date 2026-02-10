@@ -85,6 +85,38 @@ class StmtGenerator(ASTVisitor):
             return lines[0]
         return "\n".join(lines)
 
+    def visit_Assign(self, node: astnodes.Assign) -> str:
+        """Generate C++ assignment statement
+
+        Format: <target> = <expr>;
+        Handles multiple targets/values pairs.
+
+        Args:
+            node: Assign AST node with .targets (list of target expressions)
+                  and .values (list of value expressions)
+
+        Returns:
+            str: C++ assignment statement(s)
+        """
+        lines = []
+
+        for i, target_node in enumerate(node.targets):
+            init_expr = None
+            if i < len(node.values):
+                init_expr = node.values[i]
+
+            target_code = self._expr_gen.generate(target_node)
+
+            if init_expr is not None:
+                value_code = self._expr_gen.generate(init_expr)
+                lines.append(f"{target_code} = {value_code};")
+            else:
+                lines.append(f"{target_code} = luaValue();")
+
+        if len(lines) == 1:
+            return lines[0]
+        return "\n".join(lines)
+
     def visit_Return(self, node: astnodes.Return) -> str:
         """Generate C++ return statement
 
