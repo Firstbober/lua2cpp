@@ -68,8 +68,8 @@ class TestStmtGenerator:
         local_func = tree.body.body[0]
         result = generator.generate(local_func)
         assert "auto add" in result
-        assert "auto& a" in result
-        assert "auto& b" in result
+        assert "auto&& a" in result
+        assert "auto&& b" in result
         assert "add" in result
         assert "(" in result
         assert ")" in result

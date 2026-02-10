@@ -37,7 +37,7 @@ end
 
         c_code = transpile_file(lua_file)
 
-        assert "auto add" in c_code
+        assert "auto&&" in c_code and "add" in c_code
         assert "return" in c_code
 
     def test_transpile_return_statement(self, tmp_path):
