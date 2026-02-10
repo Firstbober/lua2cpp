@@ -85,7 +85,7 @@ class TestType:
             (TypeKind.NUMBER, 'double'),
             (TypeKind.FUNCTION, 'auto'),
             (TypeKind.BOOLEAN, 'bool'),
-            (TypeKind.TABLE, 'auto'),
+            (TypeKind.TABLE, 'TABLE'),
             (TypeKind.ANY, 'std::variant<...>'),
         ]
 
