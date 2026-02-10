@@ -54,7 +54,7 @@ class Type:
         elif self.kind == TypeKind.STRING:
             return "std::string"
         elif self.kind == TypeKind.TABLE:
-            return "auto"
+            return "TABLE"
         elif self.kind == TypeKind.FUNCTION:
             return "auto"
         elif self.kind == TypeKind.ANY:

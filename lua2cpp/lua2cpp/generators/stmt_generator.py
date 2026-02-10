@@ -231,10 +231,12 @@ class StmtGenerator(ASTVisitor):
         stop_code = self._expr_gen.generate(node.stop)
 
         # Generate step expression (default is 1 if not provided)
-        if node.step:
-            step_code = self._expr_gen.generate(node.step)
-        else:
+        if node.step is None:
             step_code = "1"
+        elif isinstance(node.step, int):
+            step_code = str(node.step)
+        else:
+            step_code = self._expr_gen.generate(node.step)
 
         # Generate loop body
         loop_body = self._generate_block(node.body)
