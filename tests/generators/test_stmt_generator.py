@@ -196,3 +196,44 @@ class TestStmtGenerator:
         stmt = astnodes.Label(label_id=astnodes.Name(identifier="label"))
         with pytest.raises(NotImplementedError):
             generator.generate(stmt)
+
+    def test_visit_assign_simple(self, generator):
+        """Test visit_Assign with simple assignment: x = 1"""
+        src = "x = 1"
+        tree = ast.parse(src)
+        assign = tree.body.body[0]
+        result = generator.generate(assign)
+        assert "=" in result
+        assert ";" in result
+        assert "None" not in result
+
+    def test_visit_assign_complex_expression(self, generator, context):
+        """Test visit_Assign with complex expression: vBv = vBv + ui*vi"""
+        context.define_local("vBv")
+        context.define_local("ui")
+        context.define_local("vi")
+
+        src = "vBv = vBv + ui*vi"
+        tree = ast.parse(src)
+        assign = tree.body.body[0]
+        result = generator.generate(assign)
+        assert "=" in result
+        assert "+" in result
+        assert "*" in result
+        assert ";" in result
+        assert "None" not in result
+
+    def test_visit_assign_index(self, generator, context):
+        """Test visit_Assign with index assignment: u[i] = 1"""
+        context.define_local("u")
+        context.define_local("i")
+
+        src = "u[i] = 1"
+        tree = ast.parse(src)
+        assign = tree.body.body[0]
+        result = generator.generate(assign)
+        assert "=" in result
+        assert "[" in result
+        assert "]" in result
+        assert ";" in result
+        assert "None" not in result

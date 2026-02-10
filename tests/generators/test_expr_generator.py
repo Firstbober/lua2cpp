@@ -272,3 +272,30 @@ class TestExprGenerator:
         assert "luaValue(42)" in result
         # After refactoring: may use vector syntax {{}} or just direct argument
         assert "luaValue(42)" in result
+
+    def test_visit_assign(self, generator, context):
+        """Test visit_Assign generates assignment expression (no semicolon)"""
+        context.define_local("x")
+        context.define_local("y")
+
+        src = "x = y"
+        tree = ast.parse(src)
+        assign = tree.body.body[0]
+        result = generator.generate(assign)
+        assert "=" in result
+        assert ";" not in result
+        assert "None" not in result
+
+    def test_visit_table_empty(self, generator):
+        """Test visit_Table generates empty table"""
+        expr = astnodes.Table(fields=[])
+        result = generator.generate(expr)
+        assert "new_table" in result or "luaArray" in result
+        assert "None" not in result
+
+    def test_visit_table_constructor_no_none(self, generator):
+        """Test visit_Table does not generate 'None' in output"""
+        expr = astnodes.Table(fields=[])
+        result = generator.generate(expr)
+        assert "None" not in result
+        assert "new_table" in result
