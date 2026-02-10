@@ -202,3 +202,29 @@ class ExprGenerator(ASTVisitor):
             return f"{value}->{idx}"
         else:
             return f"{value}[{idx}]"
+
+    def visit_Table(self, node: astnodes.Table) -> str:
+        """Generate C++ table constructor
+
+        For now, always returns NEW_TABLE macro for simplicity.
+
+        Args:
+            node: Table AST node
+
+        Returns:
+            str: NEW_TABLE macro string
+        """
+        return "NEW_TABLE"
+
+    def visit_Assign(self, node: astnodes.Assign) -> str:
+        """Generate C++ assignment expression
+
+        Args:
+            node: Assign AST node with targets and values
+
+        Returns:
+            str: C++ assignment expression (target = value, no semicolon)
+        """
+        target = self.generate(node.targets[0])
+        value = self.generate(node.values[0])
+        return f"{target} = {value}"
