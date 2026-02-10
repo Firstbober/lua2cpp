@@ -54,15 +54,15 @@ class StmtGenerator(ASTVisitor):
         Returns:
             str: C++ local variable declaration(s)
         """
-        # LocalAssign has .names (list of Name nodes) and .exprs (list of expressions)
+        # LocalAssign has .targets (list of Name nodes) and .values (list of expressions)
         # Multiple variables can be declared: local x, y = 1, 2
         lines = []
 
-        for i, name_node in enumerate(node.names):
+        for i, name_node in enumerate(node.targets):
             var_name = name_node.id
             init_expr = None
-            if i < len(node.exprs):
-                init_expr = node.exprs[i]
+            if i < len(node.values):
+                init_expr = node.values[i]
 
             # Try to get type information from the name node
             var_type = None
@@ -97,14 +97,14 @@ class StmtGenerator(ASTVisitor):
         Returns:
             str: C++ return statement
         """
-        # Return has .exprs (list of expressions, can be empty)
+        # Return has .values (list of expressions, can be empty)
         # For now, we only handle single return values or empty return
-        if not node.exprs:
+        if not node.values:
             return "return;"
 
         # Take the first expression (Lua can return multiple values,
         # but we only handle the first for now)
-        expr_code = self._expr_gen.generate(node.exprs[0])
+        expr_code = self._expr_gen.generate(node.values[0])
         return f"return {expr_code};"
 
     def _generate_block(self, block: astnodes.Block, indent: str = "    ") -> str:

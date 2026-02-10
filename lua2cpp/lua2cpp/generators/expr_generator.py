@@ -103,3 +103,102 @@ class ExprGenerator(ASTVisitor):
         """
         # Return the identifier name directly
         return node.id
+
+    def visit_AddOp(self, node: astnodes.AddOp) -> str:
+        """Generate C++ addition operation
+
+        Args:
+            node: AddOp AST node with left and right operands
+
+        Returns:
+            str: C++ addition expression
+        """
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} + {right}"
+
+    def visit_SubOp(self, node: astnodes.SubOp) -> str:
+        """Generate C++ subtraction operation
+
+        Args:
+            node: SubOp AST node with left and right operands
+
+        Returns:
+            str: C++ subtraction expression
+        """
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} - {right}"
+
+    def visit_MultOp(self, node: astnodes.MultOp) -> str:
+        """Generate C++ multiplication operation
+
+        Args:
+            node: MultOp AST node with left and right operands
+
+        Returns:
+            str: C++ multiplication expression
+        """
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} * {right}"
+
+    def visit_FloatDivOp(self, node: astnodes.FloatDivOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} / {right}"
+
+    def visit_EqToOp(self, node: astnodes.EqToOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} == {right}"
+
+    def visit_LessThanOp(self, node: astnodes.LessThanOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} < {right}"
+
+    def visit_GreaterThanOp(self, node: astnodes.GreaterThanOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} > {right}"
+
+    def visit_LessOrEqThanOp(self, node: astnodes.LessOrEqThanOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} <= {right}"
+
+    def visit_GreaterOrEqThanOp(self, node: astnodes.GreaterOrEqThanOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} >= {right}"
+
+    def visit_NotEqToOp(self, node: astnodes.NotEqToOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"{left} != {right}"
+
+    def visit_AndLoOp(self, node: astnodes.AndLoOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"(({left}) ? ({right}) : ({left}))"
+
+    def visit_OrLoOp(self, node: astnodes.OrLoOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"(({left}) ? ({left}) : ({right}))"
+
+    def visit_Call(self, node: astnodes.Call) -> str:
+        func = self.generate(node.func)
+        args = [self.generate(arg) for arg in node.args]
+        args_str = ", ".join([f"state"] + args) if args else "state"
+        return f"{func}({args_str})"
+
+    def visit_Index(self, node: astnodes.Index) -> str:
+        value = self.generate(node.value)
+        idx = self.generate(node.idx)
+
+        if hasattr(node, 'notation') and str(node.notation) == "IndexNotation.DOT":
+            return f"{value}->{idx}"
+        else:
+            return f"{value}[{idx}]"
