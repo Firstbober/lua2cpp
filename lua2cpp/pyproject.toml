@@ -1,0 +1,27 @@
+[project]
+name = "lua2cpp"
+version = "0.1.0"
+description = "Lua 5.4 to C++ transpiler - Type Resolution System"
+requires-python = ">=3.10"
+dependencies = [
+    "luaparser>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["lua2cpp", "lua2cpp.core", "lua2cpp.analyzers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v"
