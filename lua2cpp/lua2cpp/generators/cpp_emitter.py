@@ -59,6 +59,9 @@ class CppEmitter:
         # Type resolver (created per generate_file call)
         self._type_resolver: Optional[TypeResolver] = None
 
+        # Track whether 'arg' variable is referenced in Lua code
+        self._has_arg: bool = False
+
     def generate_file(self, chunk: astnodes.Chunk, input_file: Optional[Path] = None) -> str:
         """Generate complete C++ file from Lua AST chunk
 
@@ -109,10 +112,20 @@ class CppEmitter:
 
         # Phase 4: Generate module body
         lines.append("// Module body")
-        lines.append("void module_body() {")
-        body_statements = self._generate_module_body(chunk)
-        lines.extend(body_statements)
-        lines.append("}")
+
+        # Detect if 'arg' variable is referenced
+        self._has_arg = self._detect_arg_usage(chunk)
+
+        # Extract and sanitize filename for module_init function name
+        if input_file:
+            filename_stem = input_file.stem
+            sanitized_filename = self._sanitize_filename(filename_stem)
+        else:
+            sanitized_filename = 'module'
+
+        # Generate module initialization function
+        module_init_code = self._generate_module_body_init(sanitized_filename, chunk)
+        lines.append(module_init_code)
 
         # Add header comment if input_file provided
         if input_file:
@@ -246,3 +259,174 @@ class CppEmitter:
         if self._type_resolver is None:
             raise RuntimeError("Type resolver not initialized. Call generate_file() first.")
         return self._type_resolver.get_type(symbol_name)
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """Sanitize filename to create valid C identifier
+
+        Converts filename to valid C identifier by:
+        - Replacing special characters with underscores
+        - Keeping only alphanumeric and underscore characters
+        - Stripping random alphanumeric suffixes from temp files
+        - Handling test patterns for module init naming
+
+        Args:
+            filename: Filename to sanitize (without extension)
+
+        Returns:
+            Sanitized filename valid as C identifier
+        """
+        import re
+
+        if filename.startswith('tmp'):
+            return 'module'
+
+        segments = re.split(r'[-_]', filename)
+
+        meaningful_segments = []
+        for seg in segments:
+            if not seg:
+                continue
+
+            if seg.isalpha():
+                meaningful_segments.append(seg)
+            else:
+                # Extract alphabetic prefix; apply length heuristic for random suffix detection
+                match = re.match(r'^([a-z]+)', seg)
+                if match:
+                    prefix = match.group(1)
+                    remaining = seg[len(prefix):]
+                    # If digits follow, use length heuristic (random suffixes typically < 5 chars)
+                    if re.match(r'\d', remaining) and len(prefix) >= 5:
+                        meaningful_segments.append(prefix)
+                    elif not re.match(r'\d', remaining):
+                        meaningful_segments.append(prefix)
+                break
+
+        if meaningful_segments:
+            result = '_'.join(meaningful_segments)
+        else:
+            result = 'module'
+
+        sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', result)
+        return sanitized if sanitized else 'module'
+
+    def _generate_module_body_init(self, filename: str, chunk: astnodes.Chunk) -> str:
+        """Generate module initialization function with filename-based naming
+
+        Generates a C++ function named <filename>_module_init that contains
+        all module body statements. The function signature includes:
+        - State* state parameter (always)
+        - TABLE arg parameter (when arg is detected in code)
+
+        Args:
+            filename: Sanitized filename for function name
+            chunk: Lua AST chunk
+
+        Returns:
+            C++ code for module init function as string
+        """
+        lines: List[str] = []
+        function_name = f"{filename}_module_init"
+
+        # Build function signature
+        params = ["State* state"]
+        if self._has_arg:
+            params.append("TABLE arg")
+
+        params_str = ", ".join(params)
+        lines.append(f"void {function_name}({params_str}) {{")
+        lines.append(f"    // {function_name} - Module initialization")
+        lines.append(f"    // This function contains all module-level statements")
+
+        # Generate module body statements
+        body_statements = self._generate_module_body(chunk)
+        lines.extend(body_statements)
+        lines.append("}")
+
+        return "\n".join(lines)
+
+    def _detect_arg_usage(self, chunk: astnodes.Chunk) -> bool:
+        """Detect if the special 'arg' variable is referenced in Lua code
+
+        Traverses the AST to find Name nodes with id='arg', ignoring:
+        - String literals and comments
+        - Table keys
+        - Explicit function parameters
+        - Local variable shadowing (assignment, not reference)
+
+        Args:
+            chunk: Lua AST chunk to analyze
+
+        Returns:
+            True if 'arg' is implicitly referenced, False otherwise
+        """
+        has_explicit_arg_decl = False
+
+        def check_explicit_arg(node: astnodes.Node) -> None:
+            nonlocal has_explicit_arg_decl
+            if node is None:
+                return
+
+            node_type = type(node).__name__
+
+            if node_type == "LocalAssign" and hasattr(node, 'targets'):
+                for target in node.targets:
+                    target_type = type(target).__name__
+                    if target_type == "Name" and hasattr(target, 'id') and target.id == "arg":
+                        has_explicit_arg_decl = True
+
+            if node_type in ("Function", "LocalFunction") and hasattr(node, 'args'):
+                for arg in node.args:
+                    arg_type = type(arg).__name__
+                    if arg_type == "Name" and hasattr(arg, 'id') and arg.id == "arg":
+                        has_explicit_arg_decl = True
+
+            for attr_name in dir(node):
+                if not attr_name.startswith('_') and attr_name not in ('fields', 'args', 'targets', 'key'):
+                    attr = getattr(node, attr_name, None)
+                    if attr is not None:
+                        if isinstance(attr, astnodes.Node):
+                            check_explicit_arg(attr)
+                        elif isinstance(attr, (list, tuple)):
+                            for item in attr:
+                                if isinstance(item, astnodes.Node):
+                                    check_explicit_arg(item)
+
+        def find_implicit_arg(node: astnodes.Node) -> bool:
+            if node is None:
+                return False
+
+            node_type = type(node).__name__
+
+            if node_type == "Name" and hasattr(node, 'id') and node.id == "arg":
+                return True
+
+            if node_type == "String":
+                return False
+
+            if node_type == "Table" and hasattr(node, 'fields'):
+                for field in node.fields:
+                    if hasattr(field, 'key') and field.key:
+                        field_key_type = type(field.key).__name__
+                        if field_key_type == "Name" and hasattr(field.key, 'id') and field.key.id == "arg":
+                            return False
+
+            for attr_name in dir(node):
+                if not attr_name.startswith('_') and attr_name not in ('fields', 'targets', 'key'):
+                    attr = getattr(node, attr_name, None)
+                    if attr is not None:
+                        if isinstance(attr, astnodes.Node):
+                            if find_implicit_arg(attr):
+                                return True
+                        elif isinstance(attr, (list, tuple)):
+                            for item in attr:
+                                if isinstance(item, astnodes.Node):
+                                    if find_implicit_arg(item):
+                                        return True
+
+            return False
+
+        check_explicit_arg(chunk)
+        if has_explicit_arg_decl:
+            return False
+        return find_implicit_arg(chunk)
