@@ -276,7 +276,7 @@ class StmtGenerator(ASTVisitor):
         # Build parameter list
         params = ["State* state"]  # First parameter is always State*
         for arg in node.args:
-            param_type = "auto"  # Default to auto if type not specified
+            param_type = "auto&"  # Default to auto& if type not specified
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()
@@ -315,7 +315,7 @@ class StmtGenerator(ASTVisitor):
         # Build parameter list
         params = ["State* state"]  # First parameter is always State*
         for arg in node.args:
-            param_type = "auto"  # Default to auto if type not specified
+            param_type = "auto&"  # Default to auto& if type not specified
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()
