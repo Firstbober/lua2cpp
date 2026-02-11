@@ -55,8 +55,13 @@ class HeaderGenerator:
         """
         lines: List[str] = []
 
-        # Add pragma once guard
         lines.append(self._generate_pragma_once())
+        lines.append("")
+
+        lines.append("#include <string>")
+        lines.append("")
+
+        lines.append("struct State;")
         lines.append("")
 
         # Add struct definitions for libraries
