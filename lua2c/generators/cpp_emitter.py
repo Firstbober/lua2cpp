@@ -4,7 +4,7 @@ Combines generated statements into complete C++ files.
 Handles #line directives for debug info and proper formatting.
 """
 
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 from lua2c.core.context import TranslationContext
 from lua2c.generators.expr_generator import ExprGenerator
@@ -228,3 +228,56 @@ class CppEmitter:
 
 luaValue {export_name}({state_name}* state);
         """
+
+    def generate_header_file(self, lua_ast, input_file: Path, output_dir: Optional[Path] = None) -> Path:
+        """Generate state.h header file with library API declarations
+
+        Collects all library function calls from AST and generates
+        a single state.h header file containing:
+        - Struct definitions for each Lua library module (io, string, math, etc.)
+        - Global function declarations in lua2c:: namespace
+        - Template function definitions inline (header-only pattern)
+
+        Args:
+            lua_ast: Lua AST chunk to analyze
+            input_file: Input Lua file path (for reference)
+            output_dir: Optional directory for state.h output (default: current directory)
+
+        Returns:
+            Path to generated state.h file
+
+        Raises:
+            ImportError: If lua2cpp components are not available
+        """
+        import sys
+        from pathlib import Path as StdPath
+
+        try:
+            import lua2cpp.core.library_call_collector
+            import lua2cpp.generators.header_generator
+        except ImportError:
+            raise ImportError(
+                "Header generation requires lua2cpp components. "
+                "Ensure lua2cpp is in Python path."
+            )
+
+        if output_dir is None:
+            output_dir = StdPath.cwd()
+
+        output_dir = StdPath(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        collector = lua2cpp.core.library_call_collector.LibraryCallCollector()
+        collector.visit(lua_ast)
+        library_calls = collector.get_library_calls()
+
+        global_functions = set()
+
+        header_gen = lua2cpp.generators.header_generator.HeaderGenerator()
+        header_content = header_gen.generate_header(library_calls, global_functions)
+
+        header_path = output_dir / "state.h"
+        with open(header_path, 'w') as f:
+            f.write(header_content)
+
+        return header_path

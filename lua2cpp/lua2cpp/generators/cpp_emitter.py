@@ -25,6 +25,9 @@ from lua2cpp.analyzers.function_registry import FunctionSignatureRegistry
 from lua2cpp.analyzers.type_resolver import TypeResolver
 from lua2cpp.generators.expr_generator import ExprGenerator
 from lua2cpp.generators.stmt_generator import StmtGenerator
+from lua2cpp.core.library_call_collector import LibraryCallCollector
+from lua2cpp.generators.header_generator import HeaderGenerator
+from lua2cpp.core.library_registry import LibraryFunctionRegistry
 
 
 class CppEmitter:
@@ -51,10 +54,11 @@ class CppEmitter:
         self.scope_manager = ScopeManager()
         self.symbol_table = SymbolTable(self.scope_manager)
         self.function_registry = FunctionSignatureRegistry()
+        self._library_registry = LibraryFunctionRegistry()
 
         # Generators for expressions and statements
-        self._expr_gen = ExprGenerator()
-        self._stmt_gen = StmtGenerator()
+        self._expr_gen = ExprGenerator(self._library_registry)
+        self._stmt_gen = StmtGenerator(self._library_registry)
 
         # Type resolver (created per generate_file call)
         self._type_resolver: Optional[TypeResolver] = None
@@ -259,6 +263,90 @@ class CppEmitter:
         if self._type_resolver is None:
             raise RuntimeError("Type resolver not initialized. Call generate_file() first.")
         return self._type_resolver.get_type(symbol_name)
+
+    def _generate_header_file(
+        self,
+        chunk: astnodes.Chunk,
+        output_path: Path
+    ) -> str:
+        """Generate state.h header file with library API declarations
+
+        Collects all library function calls from AST and generates
+        a single state.h header file containing:
+        - Struct definitions for each Lua library module (io, string, math, etc.)
+        - Global function declarations in lua2c:: namespace
+        - Template function definitions inline (header-only pattern)
+
+        Args:
+            chunk: Lua AST chunk to analyze
+            output_path: Full path to output state.h file
+
+        Returns:
+            Path to generated state.h file as string
+
+        Example:
+            >>> emitter = CppEmitter()
+            >>> emitter.generate_file(chunk)
+            >>> header_path = emitter._generate_header_file(chunk, Path("state.h"))
+            >>> print(f"Generated: {header_path}")
+        """
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        collector = LibraryCallCollector()
+        collector.visit(chunk)
+        library_calls = collector.get_library_calls()
+
+        global_functions = set()
+
+        generator = HeaderGenerator()
+        header = generator.generate_header(library_calls, global_functions)
+
+        with open(output_path, 'w') as f:
+            f.write(header)
+
+        return str(output_path)
+
+    def generate_header_file(self, chunk: astnodes.Chunk, output_dir: Optional[Path] = None) -> Path:
+        """Generate state.h header file with library API declarations
+
+        Collects all library function calls from AST and generates
+        a single state.h header file containing:
+        - Struct definitions for each Lua library module (io, string, math, etc.)
+        - Global function declarations in lua2c:: namespace
+        - Template function definitions inline (header-only pattern)
+
+        Args:
+            chunk: Lua AST chunk to analyze
+            output_dir: Optional directory for state.h output (default: current directory)
+
+        Returns:
+            Path to generated state.h file
+
+        Example:
+            >>> emitter = CppEmitter()
+            >>> emitter.generate_file(chunk)
+            >>> header_path = emitter.generate_header_file(chunk, Path("output"))
+            >>> print(f"Generated: {header_path}")
+        """
+        if output_dir is None:
+            output_dir = Path.cwd()
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        collector = LibraryCallCollector()
+        collector.visit(chunk)
+        library_calls = collector.get_library_calls()
+
+        global_functions = set()
+
+        header_gen = HeaderGenerator()
+        header_content = header_gen.generate_header(library_calls, global_functions)
+
+        header_path = output_dir / "state.h"
+        with open(header_path, 'w') as f:
+            f.write(header_content)
+
+        return header_path
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to create valid C identifier

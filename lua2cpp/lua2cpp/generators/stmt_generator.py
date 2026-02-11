@@ -4,7 +4,7 @@ Generates C++ code from Lua AST statement nodes.
 Implements double-dispatch pattern for local assignments and return statements.
 """
 
-from typing import Any, Optional, List
+from typing import Any, Optional, List, TYPE_CHECKING
 from lua2cpp.core.ast_visitor import ASTVisitor
 from lua2cpp.core.types import Type, ASTAnnotationStore
 from lua2cpp.generators.expr_generator import ExprGenerator
@@ -16,6 +16,9 @@ except ImportError:
         "luaparser is required. Install with: pip install luaparser"
     )
 
+if TYPE_CHECKING:
+    from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
+
 
 class StmtGenerator(ASTVisitor):
     """Generates C++ code from Lua AST statement nodes
@@ -24,10 +27,14 @@ class StmtGenerator(ASTVisitor):
     Integrates with ExprGenerator for expression generation.
     """
 
-    def __init__(self) -> None:
-        """Initialize statement generator with expression generator"""
+    def __init__(self, library_registry: Optional[_LibraryFunctionRegistry] = None) -> None:
+        """Initialize statement generator with expression generator
+
+        Args:
+            library_registry: Optional registry for detecting library function calls.
+        """
         super().__init__()
-        self._expr_gen = ExprGenerator()
+        self._expr_gen = ExprGenerator(library_registry)
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from a statement node using double-dispatch

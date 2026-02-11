@@ -4,8 +4,9 @@ Generates C++ code from Lua AST expression nodes.
 Implements double-dispatch pattern for literal and name expressions.
 """
 
-from typing import Any
+from typing import Any, Optional, TYPE_CHECKING
 from lua2cpp.core.ast_visitor import ASTVisitor
+from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
 
 try:
     from luaparser import astnodes
@@ -14,6 +15,9 @@ except ImportError:
         "luaparser is required. Install with: pip install luaparser"
     )
 
+if TYPE_CHECKING:
+    from lua2cpp.core.library_registry import LibraryFunctionRegistry
+
 
 class ExprGenerator(ASTVisitor):
     """Generates C++ code from Lua AST expression nodes
@@ -21,6 +25,16 @@ class ExprGenerator(ASTVisitor):
     Focuses on literal expressions (Number, String, Boolean) and Name nodes.
     More complex expressions (operators, calls, indexing) are handled separately.
     """
+
+    def __init__(self, library_registry: Optional[_LibraryFunctionRegistry] = None) -> None:
+        """Initialize expression generator
+
+        Args:
+            library_registry: Optional registry for detecting library function calls.
+                            If provided, generates API syntax for library functions.
+        """
+        super().__init__()
+        self._library_registry = library_registry
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from an expression node using double-dispatch
@@ -195,13 +209,48 @@ class ExprGenerator(ASTVisitor):
         return f"{func}({args_str})"
 
     def visit_Index(self, node: astnodes.Index) -> str:
+        """Generate C++ index expression
+
+        For library function calls (io.write, math.sqrt), generates member access
+        syntax (io.write) instead of pointer access (io->write).
+
+        Args:
+            node: Index AST node with value and idx
+
+        Returns:
+            str: Generated C++ code
+        """
         value = self.generate(node.value)
         idx = self.generate(node.idx)
 
         if hasattr(node, 'notation') and str(node.notation) == "IndexNotation.DOT":
-            return f"{value}->{idx}"
+            if self._is_library_index(node):
+                return f"{value}.{idx}"
+            else:
+                return f"{value}->{idx}"
         else:
             return f"{value}[{idx}]"
+
+    def _is_library_index(self, node: astnodes.Index) -> bool:
+        """Check if Index node represents a library function reference
+
+        Library functions have pattern: Index.value is Name with library name.
+        Examples: io.write, math.sqrt, string.format
+
+        Args:
+            node: Index AST node
+
+        Returns:
+            True if this is a library function reference, False otherwise
+        """
+        if self._library_registry is None:
+            return False
+
+        if not isinstance(node.value, astnodes.Name):
+            return False
+
+        library_name = node.value.id
+        return self._library_registry.is_standard_library(library_name)
 
     def visit_Table(self, node: astnodes.Table) -> str:
         """Generate C++ table constructor

@@ -494,7 +494,7 @@ def _transpile_module(lua_file: Path, project_name: str) -> str:
 
 
 def transpile_project(
-    main_file: Path, output_dir: Optional[Path] = None, verbose: bool = False
+    main_file: Path, output_dir: Optional[Path] = None, verbose: bool = False, generate_header: bool = False
 ) -> None:
     """Transpile entire project.
 
@@ -502,6 +502,7 @@ def transpile_project(
         main_file: Path to main.lua file
         output_dir: Output directory (default: build/)
         verbose: Enable verbose output
+        generate_header: If True, generate state.h header file
 
     Raises:
         FileNotFoundError: If main_file doesn't exist
@@ -625,6 +626,46 @@ def transpile_project(
     print(f"  cd {output_dir}")
     print(f"  g++ -std=c++17 -I{runtime_path} -o {project_name} {project_name}_main.cpp *_module.cpp {runtime_path}/*.cpp")
 
+    if generate_header:
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "lua2cpp"))
+
+            import lua2cpp.core.library_call_collector
+            import lua2cpp.generators.header_generator
+
+            all_library_calls = []
+
+            for lua_file_rel in lua_files:
+                lua_file_abs = project_root / lua_file_rel
+                if not lua_file_abs.exists():
+                    continue
+
+                with open(lua_file_abs, 'r', encoding='utf-8') as f:
+                    source = f.read()
+
+                try:
+                    tree = ast.parse(source)
+                    collector = lua2cpp.core.library_call_collector.LibraryCallCollector()
+                    collector.visit(tree)
+                    all_library_calls.extend(collector.get_library_calls())
+                except Exception:
+                    continue
+
+            if all_library_calls:
+                global_functions = set()
+                header_gen = lua2cpp.generators.header_generator.HeaderGenerator()
+                header_content = header_gen.generate_header(all_library_calls, global_functions)
+
+                header_path = output_dir / "state.h"
+                with open(header_path, 'w') as f:
+                    f.write(header_content)
+                print(f"Generated: {header_path}")
+        except ImportError as e:
+            print(f"Warning: Header generation not available: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error generating header: {e}", file=sys.stderr)
+
 
 def main() -> None:
     """Main CLI entry point"""
@@ -669,6 +710,10 @@ Examples:
         '--verbose', '-v', action='store_true',
         help='Enable verbose output'
     )
+    parser.add_argument(
+        '--header', action='store_true',
+        help='Generate state.h header file with library API declarations'
+    )
 
     args = parser.parse_args()
 
@@ -690,7 +735,7 @@ Examples:
         if args.main:
             # Project mode
             output_path = Path(args.output) if args.output else None
-            transpile_project(input_file, output_path, args.verbose)
+            transpile_project(input_file, output_path, args.verbose, args.header)
         else:
             # Single-file mode
             output_name = args.output if args.output else input_file.stem
@@ -737,6 +782,27 @@ Examples:
                 print(f"\nTo use as library, include:")
                 print(f"  #include \"{output_name}_state.hpp\"")
                 print(f"  #include \"{output_name}_module.hpp\"")
+
+            # Generate state.h header if --header flag is set
+            if args.header:
+                try:
+                    from lua2c.core.context import TranslationContext
+                    from lua2c.generators.cpp_emitter import CppEmitter
+
+                    with open(input_file, 'r', encoding='utf-8') as f:
+                        source = f.read()
+                    header_tree = ast.parse(source)
+
+                    context = TranslationContext(input_file.parent, str(input_file.parent))
+                    context.set_single_file_mode(output_name, as_library=args.lib)
+                    emitter = CppEmitter(context)
+
+                    header_path = emitter.generate_header_file(header_tree, input_file, output_dir)
+                    print(f"Generated: {header_path}")
+                except ImportError as e:
+                    print(f"Warning: Header generation not available: {e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"Error generating header: {e}", file=sys.stderr)
 
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
