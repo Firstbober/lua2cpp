@@ -211,7 +211,7 @@ class ExprGenerator(ASTVisitor):
 
     def visit_ULengthOP(self, node: astnodes.ULengthOP) -> str:
         operand = self.generate(node.operand)
-        return f"lua2c::get_length({operand})"
+        return f"l2c::get_length({operand})"
 
     def visit_Call(self, node: astnodes.Call) -> str:
         func = self.generate(node.func)

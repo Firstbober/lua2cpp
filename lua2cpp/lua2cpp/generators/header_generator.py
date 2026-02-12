@@ -195,7 +195,7 @@ class HeaderGenerator:
         lines: List[str] = []
 
         # Start namespace
-        lines.append("namespace lua2c {")
+        lines.append("namespace l2c {")
 
         # Generate declarations for each function
         for func_name in sorted(global_functions):
@@ -214,7 +214,7 @@ class HeaderGenerator:
             lines.append(f"    {return_type} {func_name}({params});")
 
         # End namespace
-        lines.append("}  // namespace lua2c")
+        lines.append("}  // namespace l2c")
 
         return lines
 

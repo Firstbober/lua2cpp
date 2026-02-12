@@ -79,6 +79,7 @@ class LibraryFunctionRegistry:
             LibraryFunction("", "rawlen", TypeKind.NUMBER, [TypeKind.VARIANT], "rawlen"),
             LibraryFunction("", "getmetatable", TypeKind.TABLE, [TypeKind.VARIANT], "getmetatable"),
             LibraryFunction("", "setmetatable", TypeKind.TABLE, [TypeKind.TABLE, TypeKind.TABLE], "setmetatable"),
+            LibraryFunction("", "get_length", TypeKind.NUMBER, [TypeKind.VARIANT], "get_length"),
         ]
         for func in global_funcs:
             self._globals[func.name] = func
