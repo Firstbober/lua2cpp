@@ -38,8 +38,8 @@ class Type:
         elif self.kind == TypeKind.VARIANT:
             inner_types = [t.cpp_type() for t in self.subtypes]
             if not inner_types:
-                return "std::variant<>"
-            return f"std::variant<{', '.join(inner_types)}>"
+                return "ANY"
+            return f"ANY({', '.join(inner_types)})"
         elif self.kind == TypeKind.BOOLEAN:
             return "bool"
         elif self.kind == TypeKind.NUMBER:
