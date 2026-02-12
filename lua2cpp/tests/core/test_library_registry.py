@@ -248,3 +248,54 @@ class TestLibraryFunctionRegistry:
         assert hasattr(info, "params")
         assert hasattr(info, "cpp_name")
         assert isinstance(info.params, list)
+
+    def test_global_functions_registered(self):
+        """Test that all 18 global functions are registered"""
+        registry = LibraryFunctionRegistry()
+
+        # Test all global functions are registered
+        global_functions = [
+            "print", "tonumber", "tostring", "type", "ipairs", "pairs", "next",
+            "error", "assert", "pcall", "xpcall", "select", "collectgarbage",
+            "rawget", "rawset", "rawlen", "getmetatable", "setmetatable"
+        ]
+
+        for func_name in global_functions:
+            assert registry.is_global_function(func_name), \
+                f"Global function '{func_name}' should be registered"
+
+    def test_global_function_info_module(self):
+        """Test that global functions have empty string as module"""
+        registry = LibraryFunctionRegistry()
+
+        global_functions = ["print", "tonumber", "tostring"]
+
+        for func_name in global_functions:
+            info = registry.get_global_info(func_name)
+            assert info is not None, f"Global function '{func_name}' should have info"
+            assert info.module == "", f"Global function '{func_name}' module should be empty string"
+
+    def test_global_function_info_structure(self):
+        """Test that global function info has correct structure"""
+        registry = LibraryFunctionRegistry()
+        info = registry.get_global_info("print")
+
+        assert info is not None
+        assert info.name == "print"
+        assert info.module == ""
+        assert info.cpp_name == "print"
+        assert hasattr(info, "return_type")
+        assert hasattr(info, "params")
+
+    def test_is_global_function_false_for_library(self):
+        """Test that is_global_function returns False for library functions"""
+        registry = LibraryFunctionRegistry()
+
+        # io.write is a library function, not a global
+        assert not registry.is_global_function("io"), "Module name should not be global function"
+
+    def test_get_global_info_none_for_unknown(self):
+        """Test that get_global_info returns None for unknown function"""
+        registry = LibraryFunctionRegistry()
+        info = registry.get_global_info("unknown_global_function")
+        assert info is None

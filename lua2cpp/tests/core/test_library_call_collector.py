@@ -87,6 +87,55 @@ end
         collector = LibraryCallCollector()
         collector.visit(chunk)
         calls = collector.get_library_calls()
-        
+
         # No calls should be detected (user function doesn't use Index notation)
+        assert len(calls) == 0
+
+    def test_detect_global_functions(self):
+        """Test that global function calls are detected as Name nodes"""
+        code = '''
+print('hello')
+tonumber('123')
+tostring(42)
+'''
+        chunk = ast.parse(code)
+        collector = LibraryCallCollector()
+        collector.visit(chunk)
+        calls = collector.get_library_calls()
+
+        # Global functions are NOT library calls (they use Name nodes, not Index nodes)
+        # LibraryCallCollector only detects Index-based calls like io.write()
+        assert len(calls) == 0
+
+    def test_global_and_library_mixed(self):
+        """Test that library calls are detected but global calls are not"""
+        code = '''
+print('hello')
+io.write('world')
+tonumber('123')
+math.sqrt(4)
+'''
+        chunk = ast.parse(code)
+        collector = LibraryCallCollector()
+        collector.visit(chunk)
+        calls = collector.get_library_calls()
+
+        # Only library calls should be detected (io.write, math.sqrt)
+        assert len(calls) == 2
+        module_func_pairs = {(call.module, call.func) for call in calls}
+        assert ("io", "write") in module_func_pairs
+        assert ("math", "sqrt") in module_func_pairs
+
+    def test_variable_reference_not_global(self):
+        """Test that variable references are not detected as library calls"""
+        code = '''
+local f = print
+f('hello')
+'''
+        chunk = ast.parse(code)
+        collector = LibraryCallCollector()
+        collector.visit(chunk)
+        calls = collector.get_library_calls()
+
+        # Variable reference should not be detected as library call
         assert len(calls) == 0

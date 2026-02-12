@@ -5,7 +5,7 @@ import argparse
 import re
 import traceback
 from pathlib import Path
-from typing import List, Set, Optional, Dict
+from typing import List, Set, Optional, Dict, Tuple
 
 try:
     from luaparser import ast
@@ -16,10 +16,10 @@ except ImportError:
 
 from lua2cpp.generators import CppEmitter
 from lua2cpp.generators.header_generator import HeaderGenerator
-from lua2cpp.core.library_call_collector import LibraryCallCollector
+from lua2cpp.core.library_call_collector import LibraryCallCollector, LibraryCallCollector as Collector
 
 
-def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False) -> tuple[str, list]:
+def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False) -> Tuple[str, List, Optional[Collector]]:
     """Transpile a single Lua file to C++
 
     Args:
@@ -53,6 +53,7 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
 
     # Collect library calls if requested
     library_calls = []
+    collector = None
     if collect_library_calls:
         collector = LibraryCallCollector()
         collector.visit(tree)
@@ -61,7 +62,7 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
     emitter = CppEmitter()
     cpp_code = emitter.generate_file(tree, input_file)
 
-    return cpp_code, library_calls
+    return cpp_code, library_calls, collector
 
 
 def extract_function_signatures(cpp_code: str) -> List[str]:
@@ -124,9 +125,7 @@ def generate_lib_header(cpp_code: str, module_name: str) -> str:
         '',
         '#pragma once',
         '',
-        '#ifdef __cplusplus',
         'extern "C" {',
-        '#endif',
         ''
     ]
 
@@ -135,9 +134,7 @@ def generate_lib_header(cpp_code: str, module_name: str) -> str:
 
     header_lines.extend([
         '',
-        '#ifdef __cplusplus',
-        '}',
-        '#endif',
+        '}  // extern "C"',
         ''
     ])
 
@@ -193,7 +190,7 @@ def main():
         sys.exit(1)
 
     try:
-        cpp_code, library_calls = transpile_file(args.input, collect_library_calls=args.header, output_dir=args.output_dir, verbose=args.verbose)
+        cpp_code, library_calls, collector = transpile_file(args.input, collect_library_calls=args.header, output_dir=args.output_dir, verbose=args.verbose)
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -244,8 +241,10 @@ def main():
     if args.header:
         try:
             header_gen = HeaderGenerator()
-            # Global function collection not implemented - state.h only contains library modules
-            global_functions: Set[str] = set()
+            global_functions = set()
+            if collector:
+                for call in collector.get_global_calls():
+                    global_functions.add(call.func)
             state_h_content = header_gen.generate_header(library_calls, global_functions)
 
             state_h_path = output_file.parent / "state.h"

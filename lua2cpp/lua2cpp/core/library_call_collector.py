@@ -5,7 +5,7 @@ Stores information about which library functions are called and where.
 """
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 from lua2cpp.core.ast_visitor import ASTVisitor
 from lua2cpp.core.library_registry import LibraryFunctionRegistry
 
@@ -36,6 +36,25 @@ class LibraryCall:
         return f"{self.module}.{self.func}(){line_info}"
 
 
+@dataclass
+class GlobalCall:
+    """Information about a global function call found in AST
+
+    Attributes:
+        module: Always empty string "" for global functions (global scope)
+        func: Global function name (e.g., "print", "tonumber", "tostring")
+        line: Line number where call occurs (if available)
+    """
+    module: str
+    func: str
+    line: int
+
+    def __str__(self) -> str:
+        """String representation of global call"""
+        line_info = f":{self.line}" if self.line > 0 else ""
+        return f"{self.func}(){line_info}"
+
+
 class LibraryCallCollector(ASTVisitor):
     """AST visitor that collects all standard library function calls
 
@@ -51,29 +70,47 @@ class LibraryCallCollector(ASTVisitor):
             print(f"{call.module}.{call.func}() at line {call.line}")
     """
 
-    def __init__(self, registry: LibraryFunctionRegistry = None) -> None:
+    def __init__(self, registry: Optional[LibraryFunctionRegistry] = None) -> None:
         """Initialize library call collector
-        
+
         Args:
             registry: LibraryFunctionRegistry to check for library functions (default: None creates new)
         """
         super().__init__()
         self._registry = registry if registry is not None else LibraryFunctionRegistry()
         self._library_calls: List[LibraryCall] = []
+        self._global_calls: List[GlobalCall] = []
 
     def visit_Call(self, node: astnodes.Call) -> None:
-        """Visit function call node and check if it's a library call
+        """Visit function call node and check if it's a library or global call
 
-        Detects library calls by checking:
-        1. Is the function reference an Index node?
-        2. Is the Index.value a Name node?
-        3. Is the Name.id a known standard library name?
-
-        If all conditions are true, this is a library function call.
+        Detects calls by checking:
+        1. Is the function reference a Name node? (global function like print)
+        2. Is the function reference an Index node? (library function like io.write)
 
         Args:
             node: Call AST node
         """
+        # Check if func is a Name node (global function like print, tonumber)
+        if isinstance(node.func, astnodes.Name):
+            func_name = node.func.id
+            # Check if this is a registered global function
+            if self._registry.is_global_function(func_name):
+                # This is a global function call - record it
+                line_number = self._get_line_number(node)
+                call = GlobalCall(
+                    module="",  # Global functions have no module prefix
+                    func=func_name,
+                    line=line_number
+                )
+                self._global_calls.append(call)
+
+                # Don't call generic_visit on the func part (already processed)
+                # But still visit arguments
+                for arg in node.args:
+                    self.visit(arg)
+                return
+
         # Check if func is an Index node (e.g., io.write, math.sqrt)
         if not isinstance(node.func, astnodes.Index):
             # Not a library call (regular function call like print())
@@ -158,12 +195,21 @@ class LibraryCallCollector(ASTVisitor):
         """
         return self._library_calls.copy()
 
+    def get_global_calls(self) -> List[GlobalCall]:
+        """Get all collected global function calls
+
+        Returns:
+            List of GlobalCall objects found during traversal
+        """
+        return self._global_calls.copy()
+
     def clear(self) -> None:
-        """Clear all collected library calls
+        """Clear all collected library and global calls
 
         Useful for reusing the collector with multiple ASTs.
         """
         self._library_calls.clear()
+        self._global_calls.clear()
 
     def _get_line_number(self, node: astnodes.Node) -> int:
         """Get line number for a node

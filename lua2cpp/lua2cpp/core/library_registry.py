@@ -43,10 +43,12 @@ class LibraryFunctionRegistry:
     def __init__(self) -> None:
         """Initialize registry with all standard library functions"""
         self._functions: Dict[str, Dict[str, LibraryFunction]] = {}
+        self._globals: Dict[str, LibraryFunction] = {}
         self._initialize_libraries()
 
     def _initialize_libraries(self) -> None:
         """Initialize all standard library function definitions"""
+        self._initialize_globals()
         self._initialize_io()
         self._initialize_string()
         self._initialize_math()
@@ -55,6 +57,31 @@ class LibraryFunctionRegistry:
         self._initialize_package()
         self._initialize_debug()
         self._initialize_coroutine()
+
+    def _initialize_globals(self) -> None:
+        """Initialize global Lua functions"""
+        global_funcs = [
+            LibraryFunction("", "print", TypeKind.ANY, [TypeKind.VARIANT], "print"),
+            LibraryFunction("", "tonumber", TypeKind.NUMBER, [TypeKind.VARIANT, TypeKind.NUMBER], "tonumber"),
+            LibraryFunction("", "tostring", TypeKind.STRING, [TypeKind.VARIANT], "tostring"),
+            LibraryFunction("", "type", TypeKind.STRING, [TypeKind.VARIANT], "type"),
+            LibraryFunction("", "ipairs", TypeKind.FUNCTION, [TypeKind.TABLE], "ipairs"),
+            LibraryFunction("", "pairs", TypeKind.FUNCTION, [TypeKind.TABLE], "pairs"),
+            LibraryFunction("", "next", TypeKind.ANY, [TypeKind.TABLE, TypeKind.VARIANT], "next"),
+            LibraryFunction("", "error", TypeKind.ANY, [TypeKind.VARIANT, TypeKind.NUMBER], "error"),
+            LibraryFunction("", "assert", TypeKind.ANY, [TypeKind.VARIANT, TypeKind.STRING], "assert"),
+            LibraryFunction("", "pcall", TypeKind.ANY, [TypeKind.FUNCTION, TypeKind.VARIANT], "pcall"),
+            LibraryFunction("", "xpcall", TypeKind.ANY, [TypeKind.FUNCTION, TypeKind.FUNCTION], "xpcall"),
+            LibraryFunction("", "select", TypeKind.ANY, [TypeKind.NUMBER, TypeKind.VARIANT], "select"),
+            LibraryFunction("", "collectgarbage", TypeKind.ANY, [TypeKind.STRING, TypeKind.VARIANT], "collectgarbage"),
+            LibraryFunction("", "rawget", TypeKind.ANY, [TypeKind.TABLE, TypeKind.VARIANT], "rawget"),
+            LibraryFunction("", "rawset", TypeKind.ANY, [TypeKind.TABLE, TypeKind.VARIANT, TypeKind.VARIANT], "rawset"),
+            LibraryFunction("", "rawlen", TypeKind.NUMBER, [TypeKind.VARIANT], "rawlen"),
+            LibraryFunction("", "getmetatable", TypeKind.TABLE, [TypeKind.VARIANT], "getmetatable"),
+            LibraryFunction("", "setmetatable", TypeKind.TABLE, [TypeKind.TABLE, TypeKind.TABLE], "setmetatable"),
+        ]
+        for func in global_funcs:
+            self._globals[func.name] = func
 
     def _initialize_io(self) -> None:
         """Initialize io library functions"""
@@ -254,6 +281,30 @@ class LibraryFunctionRegistry:
         """
         if module_name in self._functions and func_name in self._functions[module_name]:
             return self._functions[module_name][func_name]
+        return None
+
+    def is_global_function(self, name: str) -> bool:
+        """Check if a function is a global Lua function
+
+        Args:
+            name: Function name to check (e.g., "print", "tonumber")
+
+        Returns:
+            True if the function is a global Lua function, False otherwise
+        """
+        return name in self._globals
+
+    def get_global_info(self, name: str) -> Optional[LibraryFunction]:
+        """Get metadata for a global Lua function
+
+        Args:
+            name: Function name to get (e.g., "print", "tonumber")
+
+        Returns:
+            LibraryFunction if found, None otherwise
+        """
+        if name in self._globals:
+            return self._globals[name]
         return None
 
     def get_all_modules(self) -> List[str]:

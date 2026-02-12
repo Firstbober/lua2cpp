@@ -232,19 +232,19 @@ class HeaderGenerator:
         if type_kind == TypeKind.UNKNOWN:
             return "auto"
         elif type_kind == TypeKind.VARIANT:
-            return "std::variant<...>"
+            return "ANY"
         elif type_kind == TypeKind.BOOLEAN:
-            return "bool"
+            return "BOOLEAN"
         elif type_kind == TypeKind.NUMBER:
-            return "double"
+            return "NUMBER"
         elif type_kind == TypeKind.STRING:
-            return "std::string"
+            return "STRING"
         elif type_kind == TypeKind.TABLE:
             return "TABLE"
         elif type_kind == TypeKind.FUNCTION:
             return "auto"
         elif type_kind == TypeKind.ANY:
-            return "std::variant<...>"
+            return "ANY"
         else:
             return "auto"
 
@@ -270,15 +270,10 @@ class HeaderGenerator:
     def _get_global_function_info(self, func_name: str):
         """Get information about a global function
 
-        Returns None for now - global function signatures are not
-        yet defined in LibraryFunctionRegistry.
-
         Args:
             func_name: Global function name
 
         Returns:
-            LibraryFunction object or None
+            LibraryFunction object or None if not found
         """
-        # Global function signatures are not yet in registry
-        # This is a placeholder for future implementation
-        return None
+        return self._registry.get_global_info(func_name)

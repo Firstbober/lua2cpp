@@ -252,6 +252,62 @@ class TestGenerateGlobalFunctionDeclarations:
         assert any("unknown_func" in line and "//" in line for line in decls), \
             "Should add comment for unknown global function"
 
+    def test_get_global_function_info(self):
+        """Test that _get_global_function_info returns correct LibraryFunction"""
+        gen = HeaderGenerator()
+
+        # Test known global function 'print'
+        info = gen._get_global_function_info("print")
+        assert info is not None, "Global function 'print' should be found"
+        assert info.name == "print", "Function name should be 'print'"
+        assert info.module == "", "Global functions have empty module"
+        assert info.cpp_name == "print", "CPP name should match function name"
+        assert hasattr(info, "return_type"), "Should have return_type"
+        assert hasattr(info, "params"), "Should have params"
+
+        # Test known global function 'tonumber'
+        info = gen._get_global_function_info("tonumber")
+        assert info is not None, "Global function 'tonumber' should be found"
+        assert info.name == "tonumber", "Function name should be 'tonumber'"
+        assert info.module == "", "Global functions have empty module"
+
+        # Test unknown function
+        info = gen._get_global_function_info("unknown_function")
+        assert info is None, "Unknown function should return None"
+
+    def test_known_global_function_declarations(self):
+        """Test that known global functions generate proper declarations"""
+        gen = HeaderGenerator()
+        global_functions = {"print", "tonumber", "tostring"}
+
+        decls = gen._generate_global_function_declarations(global_functions)
+
+        assert any("namespace lua2c {" in line for line in decls), \
+            "Should use lua2c namespace"
+        assert any("print" in line and "print" not in "//" for line in decls), \
+            "Should declare print function (not as comment)"
+        assert any("tonumber" in line and "tonumber" not in "//" for line in decls), \
+            "Should declare tonumber function (not as comment)"
+        assert any("tostring" in line and "tostring" not in "//" for line in decls), \
+            "Should declare tostring function (not as comment)"
+
+    def test_known_and_unknown_global_functions_mixed(self):
+        """Test that mixed known/unknown functions generate correct declarations"""
+        gen = HeaderGenerator()
+        global_functions = {"print", "unknown_func", "tonumber"}
+
+        decls = gen._generate_global_function_declarations(global_functions)
+
+        # Known functions should generate declarations
+        assert any("print" in line and "print" not in "//" for line in decls), \
+            "Should declare print function"
+        assert any("tonumber" in line and "tonumber" not in "//" for line in decls), \
+            "Should declare tonumber function"
+
+        # Unknown function should generate comment
+        assert any("unknown_func" in line and "//" in line for line in decls), \
+            "Should add comment for unknown function"
+
 
 class TestGenerateHeader:
     """Test generate_header() method"""
