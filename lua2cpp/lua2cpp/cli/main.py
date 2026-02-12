@@ -108,14 +108,14 @@ def extract_function_signatures(cpp_code: str) -> List[str]:
 
 
 def generate_lib_header(cpp_code: str, module_name: str) -> str:
-    """Generate .hpp header file with extern "C" forward declarations.
+    """Generate .hpp header file with forward declarations.
 
     Args:
         cpp_code: Generated C++ source code
         module_name: Name of the module (input filename stem)
 
     Returns:
-        Header file content with extern "C" declarations
+        Header file content with forward declarations
     """
     signatures = extract_function_signatures(cpp_code)
 
@@ -125,18 +125,12 @@ def generate_lib_header(cpp_code: str, module_name: str) -> str:
         '',
         '#pragma once',
         '',
-        'extern "C" {',
-        ''
     ]
 
     for sig in signatures:
         header_lines.append(f'{sig};')
 
-    header_lines.extend([
-        '',
-        '}  // extern "C"',
-        ''
-    ])
+    header_lines.append('')
 
     return '\n'.join(header_lines)
 

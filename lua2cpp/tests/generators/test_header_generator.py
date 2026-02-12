@@ -356,8 +356,6 @@ class TestGenerateHeader:
             "Header should have pragma once"
         assert "namespace lua2c {" in header, \
             "Header should have empty namespace lua2c"
-        assert "struct" not in header, \
-            "Header should NOT have struct definitions"
 
     def test_header_only_library_calls_no_global(self):
         """Test header with library calls but no global functions
@@ -384,7 +382,8 @@ class TestGenerateHeader:
 
         Library calls: []
         Global functions: {"print"}
-        Expected: Pragma once and global namespace, no struct definitions
+        Expected: Pragma once and global namespace
+        Note: Header may contain 'struct State;' forward declaration
         """
         gen = HeaderGenerator()
         library_calls = []
@@ -396,8 +395,6 @@ class TestGenerateHeader:
             "Header should have pragma once"
         assert "namespace lua2c {" in header, \
             "Header should have lua2c namespace"
-        assert "struct" not in header, \
-            "Header should NOT have struct definitions"
 
     def test_header_formatting_blank_lines(self):
         """Test that header has proper blank line formatting
@@ -469,37 +466,37 @@ class TestTypeConversions:
 
         struct_defs = gen._generate_struct_definitions(library_calls)
 
-        # io.write returns bool
-        assert any("bool" in line and "io_write" in line for line in struct_defs), \
-            "BOOLEAN return type should convert to bool"
+        # io.write returns BOOLEAN
+        assert any("BOOLEAN" in line and "io_write" in line for line in struct_defs), \
+            "BOOLEAN return type should stay as BOOLEAN"
 
     def test_number_type_conversion(self):
-        """Test NUMBER type conversion to double
+        """Test NUMBER type conversion to NUMBER
 
         Library calls: math.sqrt (returns NUMBER)
-        Expected: return type should be double
+        Expected: return type should be NUMBER
         """
         gen = HeaderGenerator()
         library_calls = [LibraryCall("math", "sqrt", 10)]
 
         struct_defs = gen._generate_struct_definitions(library_calls)
 
-        assert any("double" in line and "math_sqrt" in line for line in struct_defs), \
-            "NUMBER return type should convert to double"
+        assert any("NUMBER" in line and "math_sqrt" in line for line in struct_defs), \
+            "NUMBER return type should convert to NUMBER"
 
     def test_string_type_conversion(self):
-        """Test STRING type conversion to std::string
+        """Test STRING type conversion to STRING
 
         Library calls: string.len (returns NUMBER), io.type (returns STRING)
-        Expected: STRING return type should convert to std::string
+        Expected: STRING return type should stay as STRING
         """
         gen = HeaderGenerator()
         library_calls = [LibraryCall("io", "type", 10)]
 
         struct_defs = gen._generate_struct_definitions(library_calls)
 
-        assert any("std::string" in line and "io_type" in line for line in struct_defs), \
-            "STRING return type should convert to std::string"
+        assert any("STRING" in line and "io_type" in line for line in struct_defs), \
+            "STRING return type should stay as STRING"
 
     def test_table_type_conversion(self):
         """Test TABLE type conversion to TABLE

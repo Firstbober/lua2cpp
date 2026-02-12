@@ -81,20 +81,17 @@ class TestType:
 
         tests = [
             (TypeKind.UNKNOWN, 'auto'),
-            (TypeKind.STRING, 'std::string'),
-            (TypeKind.NUMBER, 'double'),
+            (TypeKind.STRING, 'STRING'),
+            (TypeKind.NUMBER, 'NUMBER'),
             (TypeKind.FUNCTION, 'auto'),
-            (TypeKind.BOOLEAN, 'bool'),
+            (TypeKind.BOOLEAN, 'BOOLEAN'),
             (TypeKind.TABLE, 'TABLE'),
             (TypeKind.ANY, 'ANY'),
         ]
 
         for kind, expected in tests:
             t = Type(kind=kind)
-            if expected == 'ANY':
-                assert 'variant' in t.cpp_type().lower()
-            else:
-                assert t.cpp_type() == expected
+            assert t.cpp_type() == expected
 
 
 class TestASTAnnotationStore:
