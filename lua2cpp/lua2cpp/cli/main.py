@@ -239,6 +239,8 @@ def main():
             if collector:
                 for call in collector.get_global_calls():
                     global_functions.add(call.func)
+            # Add get_length manually - it's used by # operator but not tracked as a function call
+            global_functions.add("get_length")
             state_h_content = header_gen.generate_header(library_calls, global_functions)
 
             state_h_path = output_file.parent / "state.h"
