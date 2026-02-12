@@ -187,10 +187,30 @@ class StmtGenerator(ASTVisitor):
         # Build if statement
         result = f"if (is_truthy({cond_code})) {if_body}"
 
-        # Handle else block
+        # Handle else/elseif block
+        # node.orelse can be Block (else) or ElseIf (else if)
         if node.orelse and node.orelse.body:
-            else_body = self._generate_block(node.orelse)
-            result += f"\nelse {else_body}"
+            if isinstance(node.orelse, astnodes.ElseIf):
+                # Handle else if (condition) { ... }
+                cond_code = self._expr_gen.generate(node.orelse.test)
+                elseif_body = self._generate_block(node.orelse.body)
+                result += f"\nelse if (is_truthy({cond_code})) {elseif_body}"
+
+                # Handle chained else if or else
+                if node.orelse.orelse and node.orelse.orelse.body:
+                    if isinstance(node.orelse.orelse, astnodes.ElseIf):
+                        # Recursively handle another else if
+                        elif_cond = self._expr_gen.generate(node.orelse.orelse.test)
+                        elif_body = self._generate_block(node.orelse.orelse.body)
+                        result += f"\nelse if (is_truthy({elif_cond})) {elif_body}"
+                    else:
+                        # Handle else
+                        else_body = self._generate_block(node.orelse.orelse)
+                        result += f"\nelse {else_body}"
+            else:
+                # Handle else { ... }
+                else_body = self._generate_block(node.orelse)
+                result += f"\nelse {else_body}"
 
         return result
 
@@ -299,9 +319,9 @@ class StmtGenerator(ASTVisitor):
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
         """Generate C++ function definition for local function
 
-        Format: auto func_name = [](State* state, param_type1 param1, ...) -> ReturnType {
+        Format: auto func_name = [](param_type1 param1, ...) -> ReturnType {
                     body
-                };
+                }
 
         Args:
             node: LocalFunction AST node with .name (Name node), .args (list of Name nodes),
@@ -320,9 +340,9 @@ class StmtGenerator(ASTVisitor):
             return_type = type_info.cpp_type()
 
         # Build parameter list
-        params = ["State* state"]  # First parameter is always State*
+        params = []
         for arg in node.args:
-            param_type = "auto&"  # Default to auto& if type not specified
+            param_type = "const auto&"  # Default to const auto& if type not specified
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()

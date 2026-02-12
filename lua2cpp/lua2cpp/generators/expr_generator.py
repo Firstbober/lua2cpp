@@ -7,6 +7,7 @@ Implements double-dispatch pattern for literal and name expressions.
 from typing import Any, Optional, TYPE_CHECKING
 from lua2cpp.core.ast_visitor import ASTVisitor
 from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
+from lua2cpp.core.types import ASTAnnotationStore
 
 try:
     from luaparser import astnodes
@@ -26,15 +27,17 @@ class ExprGenerator(ASTVisitor):
     More complex expressions (operators, calls, indexing) are handled separately.
     """
 
-    def __init__(self, library_registry: Optional[_LibraryFunctionRegistry] = None) -> None:
+    def __init__(self, library_registry: Optional[_LibraryFunctionRegistry] = None, stmt_gen: Optional[Any] = None) -> None:
         """Initialize expression generator
 
         Args:
             library_registry: Optional registry for detecting library function calls.
                             If provided, generates API syntax for library functions.
+            stmt_gen: Optional statement generator for generating anonymous function bodies.
         """
         super().__init__()
         self._library_registry = library_registry
+        self._stmt_gen = stmt_gen
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from an expression node using double-dispatch
@@ -202,11 +205,50 @@ class ExprGenerator(ASTVisitor):
         right = self.generate(node.right)
         return f"(({left}) ? ({left}) : ({right}))"
 
+    def visit_UMinusOp(self, node: astnodes.UMinusOp) -> str:
+        operand = self.generate(node.operand)
+        return f"-({operand})"
+
     def visit_Call(self, node: astnodes.Call) -> str:
         func = self.generate(node.func)
-        args = [self.generate(arg) for arg in node.args]
-        args_str = ", ".join([f"state"] + args) if args else "state"
-        return f"{func}({args_str})"
+        args = []
+        for i, arg in enumerate(node.args):
+            generated = self.generate(arg)
+            if generated is None:
+                raise TypeError(f"Cannot generate code for argument {i} of type {type(arg).__name__} in Call to {func}")
+            args.append(generated)
+
+        # Check if this is a call to a global library function (e.g., print, tonumber)
+        if self._is_global_function_call(node):
+            # Global library functions are in l2c namespace and don't need state parameter
+            args_str = ", ".join(args) if args else ""
+            return f"l2c::{func}({args_str})"
+        else:
+            # Regular function calls don't include state parameter
+            args_str = ", ".join(args) if args else ""
+            return f"{func}({args_str})"
+
+    def _is_global_function_call(self, node: astnodes.Call) -> bool:
+        """Check if this is a call to a global Lua library function
+
+        Global functions like print, tonumber, tostring, etc. are in l2c namespace
+        and don't require the state parameter.
+
+        Args:
+            node: Call AST node
+
+        Returns:
+            True if this is a global library function call, False otherwise
+        """
+        if self._library_registry is None:
+            return False
+
+        # Check if func is a Name node (direct function call like print())
+        if isinstance(node.func, astnodes.Name):
+            func_name = node.func.id
+            return self._library_registry.is_global_function(func_name)
+
+        return False
 
     def visit_Index(self, node: astnodes.Index) -> str:
         """Generate C++ index expression
@@ -264,6 +306,32 @@ class ExprGenerator(ASTVisitor):
             str: NEW_TABLE macro string
         """
         return "NEW_TABLE"
+
+    def visit_AnonymousFunction(self, node: astnodes.AnonymousFunction) -> str:
+        """Generate C++ lambda expression for anonymous function"""
+        params = []
+        for arg in node.args:
+            if hasattr(arg, 'id'):
+                params.append(f"const auto& {arg.id}")
+            else:
+                params.append("const auto& arg")
+
+        params_str = ", ".join(params)
+
+        return_type = "auto"
+        type_info = ASTAnnotationStore.get_type(node)
+        if type_info is not None:
+            return_type = type_info.cpp_type()
+
+        if self._stmt_gen is None:
+            body_str = "    /* Anonymous function body - stmt_gen not available */"
+        else:
+            body_lines = []
+            for stmt in node.body.body:
+                body_lines.append(f"    {self._stmt_gen.generate(stmt)}")
+            body_str = "\n".join(body_lines) if body_lines else ""
+
+        return f"[]({params_str}) -> {return_type} {{\n{body_str}\n}}"
 
     def visit_Assign(self, node: astnodes.Assign) -> str:
         """Generate C++ assignment expression

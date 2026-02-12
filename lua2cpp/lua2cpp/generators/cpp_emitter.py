@@ -59,6 +59,8 @@ class CppEmitter:
         # Generators for expressions and statements
         self._expr_gen = ExprGenerator(self._library_registry)
         self._stmt_gen = StmtGenerator(self._library_registry)
+        # Set cross-reference for anonymous function generation
+        self._expr_gen._stmt_gen = self._stmt_gen
 
         # Type resolver (created per generate_file call)
         self._type_resolver: Optional[TypeResolver] = None
@@ -92,6 +94,10 @@ class CppEmitter:
             // Auto-generated C++ code...
         """
         lines: List[str] = []
+
+        # Add runtime header include
+        lines.append('#include "l2c_runtime.hpp"')
+        lines.append("")
 
         # Phase 1: Type resolution
         self._type_resolver = TypeResolver(
@@ -164,7 +170,7 @@ class CppEmitter:
                     return_type = type_info.cpp_type()
 
                 # Build parameter list
-                params = ["State* state"]
+                params = []
                 for arg in stmt.args:
                     param_type = "auto"
                     arg_type_info = ASTAnnotationStore.get_type(arg)
@@ -417,7 +423,7 @@ class CppEmitter:
         function_name = f"{filename}_module_init"
 
         # Build function signature
-        params = ["State* state"]
+        params = []
         if self._has_arg:
             params.append("TABLE arg")
 
