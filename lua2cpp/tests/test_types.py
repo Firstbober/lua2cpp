@@ -86,12 +86,12 @@ class TestType:
             (TypeKind.FUNCTION, 'auto'),
             (TypeKind.BOOLEAN, 'bool'),
             (TypeKind.TABLE, 'TABLE'),
-            (TypeKind.ANY, 'std::variant<...>'),
+            (TypeKind.ANY, 'ANY'),
         ]
 
         for kind, expected in tests:
             t = Type(kind=kind)
-            if expected == 'std::variant<...>':
+            if expected == 'ANY':
                 assert 'variant' in t.cpp_type().lower()
             else:
                 assert t.cpp_type() == expected

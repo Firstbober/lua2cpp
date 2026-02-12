@@ -43,22 +43,23 @@ class Type:
         if self.kind == TypeKind.UNKNOWN:
             return "auto"
         elif self.kind == TypeKind.VARIANT:
-            inner_types = [t.cpp_type() for t in self.subtypes]
-            if not inner_types:
-                return "std::variant<>"
-            return f"std::variant<{', '.join(inner_types)}>"
+            # inner_types = [t.cpp_type() for t in self.subtypes]
+            # if not inner_types:
+            #     return "ANY"
+            # return f"ANY({', '.join(inner_types)})"
+            return "ANY"
         elif self.kind == TypeKind.BOOLEAN:
-            return "bool"
+            return "BOOLEAN"
         elif self.kind == TypeKind.NUMBER:
-            return "double"
+            return "NUMBER"
         elif self.kind == TypeKind.STRING:
-            return "std::string"
+            return "STRING"
         elif self.kind == TypeKind.TABLE:
             return "TABLE"
         elif self.kind == TypeKind.FUNCTION:
             return "auto"
         elif self.kind == TypeKind.ANY:
-            return "std::variant<...>"
+            return "ANY"
         else:
             return "auto"
 
