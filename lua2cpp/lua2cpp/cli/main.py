@@ -17,6 +17,7 @@ except ImportError:
 from lua2cpp.generators import CppEmitter
 from lua2cpp.generators.header_generator import HeaderGenerator
 from lua2cpp.core.library_call_collector import LibraryCallCollector, LibraryCallCollector as Collector
+from lua2cpp.analyzers.y_combinator_detector import YCombinatorDetector
 
 
 def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False) -> Tuple[str, List, Optional[Collector]]:
@@ -51,9 +52,20 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
     except SyntaxException as e:
         raise SyntaxException(f"Invalid Lua syntax in {input_file}: {e}")
 
-    # Collect library calls if requested
-    library_calls = []
+    source_lines = source.split('\n')
+
+    y_detector = YCombinatorDetector(source_lines)
+    y_detector.visit(tree)
+    y_warnings = y_detector.get_warnings()
+
+    for w in y_warnings:
+        print(f"Warning: {w.message}", file=sys.stderr)
+        print(f"  at {input_file}:{w.line_start}", file=sys.stderr)
+        if w.source_snippet:
+            print(f"  source: {w.source_snippet.strip()}", file=sys.stderr)
+
     collector = None
+    library_calls = []
     if collect_library_calls:
         collector = LibraryCallCollector()
         collector.visit(tree)
@@ -61,6 +73,14 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
 
     emitter = CppEmitter()
     cpp_code = emitter.generate_file(tree, input_file)
+
+    if y_warnings:
+        warning_block = "// WARNING: Y-combinator patterns detected that may not compile in C++17:\n"
+        for w in y_warnings:
+            warning_block += f"//   Line {w.line_start}: {w.source_snippet.strip() if w.source_snippet else '(unknown)'}\n"
+        warning_block += "// These patterns use self-application (f(f)) which creates circular type dependencies.\n"
+        warning_block += "// Consider rewriting using explicit recursion or std::function wrappers.\n"
+        cpp_code = warning_block + cpp_code
 
     return cpp_code, library_calls, collector
 
