@@ -23,7 +23,6 @@ from lua2cpp.cli.main import transpile_file
 
 LUA_TEST_DIR = Path(__file__).parent.parent.parent / "tests" / "cpp" / "lua"
 GENERATED_DIR = Path(__file__).parent.parent.parent / "tests" / "cpp" / "generated"
-RUNTIME_INCLUDE = Path(__file__).parent.parent.parent.parent / "runtime"
 
 
 def _run_gpp_syntax_check(cpp_file, timeout=60):
@@ -36,16 +35,11 @@ def _run_gpp_syntax_check(cpp_file, timeout=60):
     Returns:
         Tuple of (exit_code, stdout, stderr)
     """
-    # Calculate include path: runtime is at project root
-    # Generated files are in tests/cpp/generated/
-    # From there, ../../runtime goes to runtime/
-    include_path = RUNTIME_INCLUDE.resolve()
-
     cmd = [
         'g++',
         '-fsyntax-only',
         '-std=c++17',
-        f'-I{include_path}',
+        '-include', '/home/bober/Documents/ProgrammingProjects/Python/lua2c/tests/cpp/stub/minimal_types.hpp',
         str(cpp_file)
     ]
 

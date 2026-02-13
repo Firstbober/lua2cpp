@@ -95,10 +95,6 @@ class CppEmitter:
         """
         lines: List[str] = []
 
-        # Add runtime header include
-        lines.append('#include "l2c_runtime.hpp"')
-        lines.append("")
-
         # Phase 1: Type resolution
         self._type_resolver = TypeResolver(
             self.scope_manager,
@@ -415,6 +411,7 @@ class CppEmitter:
         Args:
             filename: Sanitized filename for function name
             chunk: Lua AST chunk
+            global_vars: List of global variable names that need declarations
 
         Returns:
             C++ code for module init function as string
@@ -431,6 +428,10 @@ class CppEmitter:
         lines.append(f"void {function_name}({params_str}) {{")
         lines.append(f"    // {function_name} - Module initialization")
         lines.append(f"    // This function contains all module-level statements")
+
+        global_vars = self._collect_global_variables(chunk)
+        for var_name in global_vars:
+            lines.append(f"    TABLE {var_name};")
 
         # Generate module body statements
         body_statements = self._generate_module_body(chunk)
@@ -524,3 +525,14 @@ class CppEmitter:
         if has_explicit_arg_decl:
             return False
         return find_implicit_arg(chunk)
+
+    def _collect_global_variables(self, chunk: astnodes.Chunk) -> List[str]:
+        """Collect names of global variables from Assign nodes in module body"""
+        global_vars = []
+        for stmt in chunk.body.body:
+            if type(stmt).__name__ == "Assign" and hasattr(stmt, 'targets'):
+                for target in stmt.targets:
+                    target_type = type(target).__name__
+                    if target_type == "Name" and hasattr(target, 'id'):
+                        global_vars.append(target.id)
+        return global_vars

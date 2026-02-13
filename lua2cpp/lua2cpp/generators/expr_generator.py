@@ -165,6 +165,11 @@ class ExprGenerator(ASTVisitor):
         right = self.generate(node.right)
         return f"{left} / {right}"
 
+    def visit_ExpoOp(self, node: astnodes.ExpoOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"std::pow({left}, {right})"
+
     def visit_EqToOp(self, node: astnodes.EqToOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
@@ -227,6 +232,10 @@ class ExprGenerator(ASTVisitor):
             # Global library functions are in l2c namespace and don't need state parameter
             args_str = ", ".join(args) if args else ""
             return f"l2c::{func}({args_str})"
+        elif self._is_library_method_call(node):
+            # Library method calls like io.write, string.format, math.sqrt
+            # These become: struct_name::method(args)
+            return self._generate_library_method_call(node, args)
         else:
             # Regular function calls don't include state parameter
             args_str = ", ".join(args) if args else ""
@@ -254,6 +263,28 @@ class ExprGenerator(ASTVisitor):
 
         return False
 
+    def _is_library_method_call(self, node: astnodes.Call) -> bool:
+        if not isinstance(node.func, astnodes.Index):
+            return False
+        if not isinstance(node.func.value, astnodes.Name):
+            return False
+        lib_name = node.func.value.id
+        return self._library_registry.is_standard_library(lib_name) if self._library_registry else False
+
+    def _generate_library_method_call(self, node: astnodes.Call, args: list) -> str:
+        lib_name = node.func.value.id
+        method_name = node.func.idx.id if hasattr(node.func.idx, 'id') else str(node.func.idx)
+        lib_map = {
+            'io': 'io',
+            'string': 'string_lib',
+            'math': 'math_lib',
+            'table': 'table_lib',
+            'os': 'os_lib',
+        }
+        cpp_lib = lib_map.get(lib_name, lib_name)
+        args_str = ", ".join(args) if args else ""
+        return f"{cpp_lib}::{method_name}({args_str})"
+
     def visit_Index(self, node: astnodes.Index) -> str:
         """Generate C++ index expression
 
@@ -271,7 +302,16 @@ class ExprGenerator(ASTVisitor):
 
         if hasattr(node, 'notation') and str(node.notation) == "IndexNotation.DOT":
             if self._is_library_index(node):
-                return f"{value}.{idx}"
+                lib_map = {
+                    'io': 'io',
+                    'string': 'string_lib',
+                    'math': 'math_lib',
+                    'table': 'table_lib',
+                    'os': 'os_lib',
+                }
+                lib_name = node.value.id if isinstance(node.value, astnodes.Name) else value
+                cpp_lib = lib_map.get(lib_name, value)
+                return f"{cpp_lib}::{idx}"
             else:
                 return f"{value}->{idx}"
         else:
@@ -335,7 +375,7 @@ class ExprGenerator(ASTVisitor):
                 body_lines.append(f"    {self._stmt_gen.generate(stmt)}")
             body_str = "\n".join(body_lines) if body_lines else ""
 
-        return f"[]({params_str}) -> {return_type} {{\n{body_str}\n}}"
+        return f"[&]({params_str}) -> {return_type} {{\n{body_str}\n}}"
 
     def visit_Assign(self, node: astnodes.Assign) -> str:
         """Generate C++ assignment expression

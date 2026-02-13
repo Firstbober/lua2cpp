@@ -35,6 +35,8 @@ class StmtGenerator(ASTVisitor):
         """
         super().__init__()
         self._expr_gen = ExprGenerator(library_registry)
+        # Set cross-reference for anonymous function body generation
+        self._expr_gen._stmt_gen = self
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from a statement node using double-dispatch
@@ -80,12 +82,10 @@ class StmtGenerator(ASTVisitor):
                 var_type = "auto"
 
             if init_expr is not None:
-                # Generate the expression
                 expr_code = self._expr_gen.generate(init_expr)
                 lines.append(f"{var_type} {var_name} = {expr_code};")
             else:
-                # Declaration without initialization
-                lines.append(f"{var_type} {var_name};")
+                lines.append(f"TABLE {var_name};")
 
         # If only one variable, return single line; otherwise return all lines
         if len(lines) == 1:
@@ -164,156 +164,67 @@ class StmtGenerator(ASTVisitor):
 
         return "{\n" + "\n".join(statements) + "\n}"
 
+    def _infer_return_type(self, block: astnodes.Block) -> str:
+        for stmt in block.body:
+            if isinstance(stmt, astnodes.Return):
+                for value in stmt.values:
+                    expr_code = self._expr_gen.generate(value)
+                    if "NEW_TABLE" in expr_code or "Table" in expr_code:
+                        return "TABLE"
+            elif isinstance(stmt, astnodes.If):
+                if self._infer_return_type(stmt.body) == "TABLE":
+                    return "TABLE"
+                if stmt.orelse and hasattr(stmt.orelse, 'body'):
+                    if self._infer_return_type(stmt.orelse) == "TABLE":
+                        return "TABLE"
+        return "double"
+
     def visit_If(self, node: astnodes.If) -> str:
-        """Generate C++ if-else statement
-
-        Format:
-            if (condition) { ... }
-            else { ... }
-
-        Args:
-            node: If AST node with .test (condition), .body (if block),
-                  .orelse (else block)
-
-        Returns:
-            str: C++ if-else statement
-        """
-        # Generate condition expression
         cond_code = self._expr_gen.generate(node.test)
-
-        # Generate if body
         if_body = self._generate_block(node.body)
-
-        # Build if statement
         result = f"if (is_truthy({cond_code})) {if_body}"
-
-        # Handle else/elseif block
-        # node.orelse can be Block (else) or ElseIf (else if)
         if node.orelse and node.orelse.body:
-            if isinstance(node.orelse, astnodes.ElseIf):
-                # Handle else if (condition) { ... }
-                cond_code = self._expr_gen.generate(node.orelse.test)
-                elseif_body = self._generate_block(node.orelse.body)
-                result += f"\nelse if (is_truthy({cond_code})) {elseif_body}"
-
-                # Handle chained else if or else
-                if node.orelse.orelse and node.orelse.orelse.body:
-                    if isinstance(node.orelse.orelse, astnodes.ElseIf):
-                        # Recursively handle another else if
-                        elif_cond = self._expr_gen.generate(node.orelse.orelse.test)
-                        elif_body = self._generate_block(node.orelse.orelse.body)
-                        result += f"\nelse if (is_truthy({elif_cond})) {elif_body}"
-                    else:
-                        # Handle else
-                        else_body = self._generate_block(node.orelse.orelse)
-                        result += f"\nelse {else_body}"
-            else:
-                # Handle else { ... }
-                else_body = self._generate_block(node.orelse)
-                result += f"\nelse {else_body}"
-
+            else_body = self._generate_block(node.orelse)
+            result += f"\nelse {else_body}"
         return result
 
     def visit_While(self, node: astnodes.While) -> str:
-        """Generate C++ while loop
-
-        Format:
-            while (condition) { ... }
-
-        Args:
-            node: While AST node with .test (condition), .body (loop body)
-
-        Returns:
-            str: C++ while loop
-        """
-        # Generate condition expression
         cond_code = self._expr_gen.generate(node.test)
-
-        # Generate loop body
         loop_body = self._generate_block(node.body)
-
         return f"while (is_truthy({cond_code})) {loop_body}"
 
     def visit_Fornum(self, node: astnodes.Fornum) -> str:
-        """Generate C++ for loop for numeric for loop
-
-        Format:
-            for (auto <name> = <start>; <name> <= <stop>; <name> += <step>) { ... }
-
-        Args:
-            node: Fornum AST node with .target (Name node), .start (init expr),
-                  .stop (end expr), .step (step expr, optional), .body (loop body)
-
-        Returns:
-            str: C++ for loop
-        """
-        # Get loop variable name
         var_name = node.target.id
-
-        # Get type for loop variable (number for numeric for)
         var_type = "double"
-
-        # Generate start and stop expressions
         start_code = self._expr_gen.generate(node.start)
         stop_code = self._expr_gen.generate(node.stop)
-
-        # Generate step expression (default is 1 if not provided)
         if node.step is None:
             step_code = "1"
         elif isinstance(node.step, int):
             step_code = str(node.step)
         else:
             step_code = self._expr_gen.generate(node.step)
-
-        # Generate loop body
         loop_body = self._generate_block(node.body)
-
-        # C++ for loop: initialization; condition; increment
-        # Lua's numeric for: for i = start, stop, step do
-        # C++ equivalent: for (auto i = start; i <= stop; i += step)
         init = f"{var_type} {var_name} = {start_code}"
         cond = f"{var_name} <= {stop_code}"
         incr = f"{var_name} += {step_code}"
-
         return f"for ({init}; {cond}; {incr}) {loop_body}"
 
     def visit_Function(self, node: astnodes.Function) -> str:
-        """Generate C++ function definition for global function
-
-        Format: ReturnType func_name(State* state, param_type1 param1, ...) {
-                    body
-                }
-
-        Args:
-            node: Function AST node with .name (Name node), .args (list of Name nodes),
-                  and .body (Block node)
-
-        Returns:
-            str: C++ function definition
-        """
-        # Get function name
         func_name = node.name.id
-
-        # Get return type from type annotation
-        return_type = "auto"  # Default to auto if type not specified
+        return_type = "auto"
         type_info = ASTAnnotationStore.get_type(node)
         if type_info is not None:
             return_type = type_info.cpp_type()
-
-        # Build parameter list
-        params = ["State* state"]  # First parameter is always State*
+        params = []
         for arg in node.args:
-            param_type = "auto&"  # Default to auto& if type not specified
+            param_type = "TABLE"
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()
             params.append(f"{param_type} {arg.id}")
-
         params_str = ", ".join(params)
-
-        # Generate function body
         body = self._generate_block(node.body, indent="    ")
-
         return f"{return_type} {func_name}({params_str}) {body}"
 
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
@@ -334,26 +245,34 @@ class StmtGenerator(ASTVisitor):
         func_name = node.name.id
 
         # Get return type from type annotation
-        return_type = "auto"  # Default to auto if type not specified
+        return_type = "auto"
         type_info = ASTAnnotationStore.get_type(node)
         if type_info is not None:
             return_type = type_info.cpp_type()
 
-        # Build parameter list
+        # Build parameter list with template parameters for C++17 compatibility
         params = []
+        template_params = []
         for arg in node.args:
-            param_type = "const auto&"  # Default to const auto& if type not specified
+            template_params.append(f"{arg.id}_t")
+            params.append(f"{arg.id}_t {arg.id}")
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()
-            params.append(f"{param_type} {arg.id}")
 
         params_str = ", ".join(params)
+        template_params_str = ", ".join([f"typename {p}" for p in template_params])
 
         # Generate function body
         body = self._generate_block(node.body, indent="    ")
 
-        return f"auto {func_name} = []({params_str}) -> {return_type} {body};"
+        # Infer return type from function body
+        inferred_return_type = self._infer_return_type(node.body)
+
+        if template_params:
+            return f"template<{template_params_str}>\n{inferred_return_type} {func_name}({params_str}) {body}"
+        else:
+            return f"{inferred_return_type} {func_name}() {body}"
 
     def visit_Call(self, node: astnodes.Call) -> str:
         """Generate C++ function call statement
@@ -371,3 +290,58 @@ class StmtGenerator(ASTVisitor):
         call_expr = self._expr_gen.generate(node)
         # Add semicolon to make it a statement
         return f"{call_expr};"
+
+    def visit_SemiColon(self, node: astnodes.SemiColon) -> str:
+        return ""
+
+    def visit_Repeat(self, node: astnodes.Repeat) -> str:
+        body = self._generate_block(node.body)
+        cond = self._expr_gen.generate(node.test)
+        return f"do {body} while (!is_truthy({cond}));"
+
+    def visit_Forin(self, node: astnodes.Forin) -> str:
+        return "// for-in loop not implemented"
+
+    def visit_Break(self, node: astnodes.Break) -> str:
+        return "break;"
+
+    def visit_Label(self, node: astnodes.Label) -> str:
+        return f"/* label {node.id} */"
+
+    def visit_Goto(self, node: astnodes.Goto) -> str:
+        return f"/* goto {node.label} */"
+
+    def visit_Invoke(self, node: astnodes.Invoke) -> str:
+        # Handle library method calls like io.write, string.format, math.sqrt
+        # These become: struct_name::method(args)
+        from luaparser import astnodes
+        
+        if isinstance(node.func, astnodes.Index):
+            # Get the library name and method name
+            if isinstance(node.func.value, astnodes.Name):
+                lib_name = node.func.value.id
+                method_name = node.func.idx.id if hasattr(node.func.idx, 'id') else str(node.func.idx)
+                
+                # Map Lua library names to C++ struct names
+                lib_map = {
+                    'io': 'io',
+                    'string': 'string_lib',
+                    'math': 'math_lib',
+                    'table': 'table_lib',
+                    'os': 'os_lib',
+                }
+                
+                cpp_lib = lib_map.get(lib_name, lib_name)
+                
+                # Generate arguments
+                args = [self._expr_gen.generate(arg) for arg in node.args]
+                args_str = ", ".join(args)
+                
+                return f"{cpp_lib}::{method_name}({args_str});"
+        
+        # Fallback for other invoke patterns
+        func = self._expr_gen.generate(node.func)
+        args = [self._expr_gen.generate(arg) for arg in node.args]
+        args_str = ", ".join(args)
+        return f"{func}({args_str});"
+
