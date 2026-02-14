@@ -216,6 +216,11 @@ class ExprGenerator(ASTVisitor):
         return f"(({left}) ? ({right}) : ({left}))"
 
     def visit_OrLoOp(self, node: astnodes.OrLoOp) -> str:
+        if isinstance(node.left, astnodes.AndLoOp):
+            cond = self.generate(node.left.left)
+            truthy = self.generate(node.left.right)
+            falsy = self.generate(node.right)
+            return f"(is_truthy({cond}) ? ({truthy}) : ({falsy}))"
         left = self.generate(node.left)
         right = self.generate(node.right)
         return f"(({left}) ? ({left}) : ({right}))"
