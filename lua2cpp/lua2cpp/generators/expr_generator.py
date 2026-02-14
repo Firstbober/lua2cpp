@@ -7,7 +7,7 @@ Implements double-dispatch pattern for literal and name expressions.
 from typing import Any, Optional, TYPE_CHECKING
 from lua2cpp.core.ast_visitor import ASTVisitor
 from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
-from lua2cpp.core.types import ASTAnnotationStore
+from lua2cpp.core.types import ASTAnnotationStore, TypeKind
 
 try:
     from luaparser import astnodes
@@ -293,6 +293,9 @@ class ExprGenerator(ASTVisitor):
         For library function calls (io.write, math.sqrt), generates member access
         syntax (io.write) instead of pointer access (io->write).
 
+        For table member access, uses bracket notation (["key"]) instead of pointer
+        access (->key) since TABLE is a value type, not a pointer.
+
         Args:
             node: Index AST node with value and idx
 
@@ -315,7 +318,8 @@ class ExprGenerator(ASTVisitor):
                 cpp_lib = lib_map.get(lib_name, value)
                 return f"{cpp_lib}::{idx}"
             else:
-                return f"{value}->{idx}"
+                # Default to bracket notation for table member access
+                return f'{value}["{idx}"]'
         else:
             return f"{value}[{idx}]"
 
