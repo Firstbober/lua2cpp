@@ -123,7 +123,7 @@ class CppEmitter:
         if self._module_state:
             lines.append("// Module state")
             for var_name in sorted(self._module_state):
-                lines.append(f"static luaValue {self._module_prefix}_{var_name};")
+                lines.append(f"static TABLE {self._module_prefix}_{var_name};")
             lines.append("")
 
         # Phase 2: Generate forward declarations
@@ -607,12 +607,26 @@ class CppEmitter:
         """
         module_state = set()
 
-        # 1. Collect module-level LocalAssign targets
+        # Track all local declarations (both regular and library refs)
+        local_declared = set()
+
+        # 1. Collect module-level LocalAssign targets (exclude function refs)
         for stmt in chunk.body.body:
             if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
-                for target in stmt.targets:
+                for i, target in enumerate(stmt.targets):
                     if hasattr(target, 'id'):
-                        module_state.add(target.id)
+                        is_lib_ref = False
+                        if hasattr(stmt, 'values') and i < len(stmt.values):
+                            val = stmt.values[i]
+                            if hasattr(val, 'value') and hasattr(val.value, 'id'):
+                                lib_names = {'math', 'io', 'string', 'table', 'os'}
+                                if val.value.id in lib_names:
+                                    is_lib_ref = True
+
+                        if not is_lib_ref:
+                            module_state.add(target.id)
+                        # Always add to local_declared to prevent collection as implicit global
+                        local_declared.add(target.id)
 
         # 2. Collect implicit globals (Assign at module level, not already local)
         for stmt in chunk.body.body:
@@ -620,7 +634,7 @@ class CppEmitter:
                 if self._is_inside_function(stmt, chunk):
                     continue
                 for target in stmt.targets:
-                    if hasattr(target, 'id') and target.id not in module_state:
+                    if hasattr(target, 'id') and target.id not in local_declared:
                         module_state.add(target.id)
 
         # Store in instance variable for use by code generation
