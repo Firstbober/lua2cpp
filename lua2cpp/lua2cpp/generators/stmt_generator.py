@@ -19,6 +19,9 @@ except ImportError:
 if TYPE_CHECKING:
     from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
 
+if TYPE_CHECKING:
+    from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
+
 
 class StmtGenerator(ASTVisitor):
     """Generates C++ code from Lua AST statement nodes
@@ -56,6 +59,9 @@ class StmtGenerator(ASTVisitor):
         If type is unknown, use 'auto' keyword.
         If no initialization, just declare without assignment.
 
+        For library function references (e.g., local x = math.sqrt),
+        wrap in a lambda to handle overloaded functions.
+
         Args:
             node: LocalAssign AST node with .names (list of Name nodes)
                   and .exprs (list of expression nodes, can be empty)
@@ -83,7 +89,27 @@ class StmtGenerator(ASTVisitor):
 
             if init_expr is not None:
                 expr_code = self._expr_gen.generate(init_expr)
-                lines.append(f"{var_type} {var_name} = {expr_code};")
+                
+                # Check if this is a bare library function REFERENCE (e.g., math.floor, io.write)
+                # This is a function REFERENCE, not a function CALL
+                # Function REFERENCE: local f = math.sqrt (Index node)
+                # Function CALL: local x = tonumber(y) (Call node)
+                is_library_ref = (
+                    isinstance(init_expr, astnodes.Index) and
+                    (expr_code.startswith('math[') or  # e.g., math["floor"]
+                     expr_code.startswith('string[') or  # e.g., string["format"]
+                     expr_code.startswith('io[') or  # e.g., io["write"]
+                     expr_code.startswith('table[') or  # e.g., table["concat"]
+                     expr_code.startswith('os[') or  # e.g., os["time"]
+                     '::' in expr_code)  # e.g., math_lib::floor
+                )
+                
+                if is_library_ref:
+                    # Generate lambda wrapper: [](auto... args) { return <expr_code>(args...); }
+                    lambda_wrapper = f"[](auto... args) {{ return {expr_code}(args...); }}"
+                    lines.append(f"{var_type} {var_name} = {lambda_wrapper};")
+                else:
+                    lines.append(f"{var_type} {var_name} = {expr_code};")
             else:
                 lines.append(f"TABLE {var_name};")
 
@@ -312,6 +338,27 @@ class StmtGenerator(ASTVisitor):
 
     def visit_Goto(self, node: astnodes.Goto) -> str:
         return f"/* goto {node.label} */"
+
+    def _is_library_function_reference(self, node: Any) -> bool:
+        """Check if the expression is a library function reference (e.g., math.sqrt, io.write)
+        
+        Args:
+            node: AST node to check
+            
+        Returns:
+            True if the node represents a library function reference, False otherwise
+        """
+        from luaparser import astnodes
+        
+        # Check if this is an Index node (library.func pattern)
+        if isinstance(node, astnodes.Index):
+            # Index.value must be a Name node (library name)
+            if isinstance(node.value, astnodes.Name):
+                library_name = node.value.id
+                # Check if it's a standard library (math, io, string, table, os)
+                return library_name in ('math', 'io', 'string', 'table', 'os')
+        
+        return False
 
     def visit_Invoke(self, node: astnodes.Invoke) -> str:
         # Handle library method calls like io.write, string.format, math.sqrt
