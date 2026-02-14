@@ -4,7 +4,7 @@ Generates C++ code from Lua AST expression nodes.
 Implements double-dispatch pattern for literal and name expressions.
 """
 
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional, Set, TYPE_CHECKING
 from lua2cpp.core.ast_visitor import ASTVisitor
 from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
 from lua2cpp.core.types import ASTAnnotationStore, TypeKind
@@ -38,6 +38,14 @@ class ExprGenerator(ASTVisitor):
         super().__init__()
         self._library_registry = library_registry
         self._stmt_gen = stmt_gen
+
+        # Module context for name mangling
+        self._module_prefix: str = ""
+        self._module_state: Set[str] = set()
+
+    def set_module_context(self, prefix: str, module_state: Set[str]) -> None:
+        self._module_prefix = prefix
+        self._module_state = module_state
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from an expression node using double-dispatch
@@ -118,8 +126,10 @@ class ExprGenerator(ASTVisitor):
         Returns:
             str: Variable name as-is
         """
-        # Return the identifier name directly
-        return node.id
+        name = node.id
+        if name in self._module_state:
+            return f"{self._module_prefix}_{name}"
+        return name
 
     def visit_AddOp(self, node: astnodes.AddOp) -> str:
         """Generate C++ addition operation

@@ -4,7 +4,7 @@ Generates C++ code from Lua AST statement nodes.
 Implements double-dispatch pattern for local assignments and return statements.
 """
 
-from typing import Any, Optional, List, TYPE_CHECKING
+from typing import Any, Optional, List, TYPE_CHECKING, Set
 from lua2cpp.core.ast_visitor import ASTVisitor
 from lua2cpp.core.types import Type, ASTAnnotationStore
 from lua2cpp.generators.expr_generator import ExprGenerator
@@ -40,6 +40,10 @@ class StmtGenerator(ASTVisitor):
         self._expr_gen = ExprGenerator(library_registry)
         # Set cross-reference for anonymous function body generation
         self._expr_gen._stmt_gen = self
+
+    def set_module_context(self, prefix: str, module_state: Set) -> None:
+        """Propagate module context to internal ExprGenerator"""
+        self._expr_gen.set_module_context(prefix, module_state)
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from a statement node using double-dispatch

@@ -117,6 +117,9 @@ class CppEmitter:
         self._module_state = self._collect_module_state(chunk)
         self._module_prefix = sanitized_filename
 
+        # Propagate module context to StmtGenerator for name mangling
+        self._stmt_gen.set_module_context(self._module_prefix, self._module_state)
+
         if self._module_state:
             lines.append("// Module state")
             for var_name in sorted(self._module_state):
