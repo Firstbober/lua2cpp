@@ -166,24 +166,36 @@ class CppEmitter:
                 if type_info is not None:
                     return_type = type_info.cpp_type()
 
-                # Build parameter list
+                # Build parameter list with template parameters
+                template_params = []
                 params = []
+                template_param_idx = 1
+
                 for arg in stmt.args:
                     param_type = "auto"
                     arg_type_info = ASTAnnotationStore.get_type(arg)
                     if arg_type_info is not None:
                         param_type = arg_type_info.cpp_type()
-                    params.append(f"{param_type} {arg.id}")
+                    
+                    # Use template parameter names (T1, T2, etc.)
+                    template_params.append(f"T{template_param_idx}")
+                    params.append(f"T{template_param_idx}")
+                    template_param_idx += 1
 
-                params_str = ", ".join(params)
+                # Build template declaration
+                if template_params:
+                    template_params_str = ", ".join(f"typename {tp}" for tp in template_params)
+                    declaration = f"template<{template_params_str}> {return_type} {mangled_name}({', '.join(params)});"
+                else:
+                    declaration = f"{return_type} {mangled_name}();"
 
                 if isinstance(stmt, astnodes.LocalFunction):
                     # Local function: forward declare as lambda type
                     # For simplicity, we just note the function name
                     declarations.append(f"// Local function: {func_name}")
                 else:
-                    # Global function: standard forward declaration
-                    declarations.append(f"{return_type} {mangled_name}({params_str});")
+                    # Global function: standard forward declaration with template syntax
+                    declarations.append(declaration)
 
         return declarations
 
