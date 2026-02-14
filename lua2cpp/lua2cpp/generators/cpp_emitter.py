@@ -544,12 +544,72 @@ class CppEmitter:
         return find_implicit_arg(chunk)
 
     def _collect_global_variables(self, chunk: astnodes.Chunk) -> List[str]:
-        """Collect names of global variables from Assign nodes in module body"""
+        """Collect names of global variables from Assign nodes in module body
+
+        Returns global variables that need TABLE declarations.
+        - LocalAssign nodes are excluded (they generate auto declarations)
+        - Variables that shadow LocalAssign declarations are excluded
+        - Assign nodes inside functions are excluded
+        """
+        # First, collect all variables declared via LocalAssign at module level
+        local_declared = set()
+        for stmt in chunk.body.body:
+            if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
+                for target in stmt.targets:
+                    if hasattr(target, 'id'):
+                        local_declared.add(target.id)
+
+        # Then collect global Assign targets, excluding those already declared locally
         global_vars = []
         for stmt in chunk.body.body:
             if type(stmt).__name__ == "Assign" and hasattr(stmt, 'targets'):
+                # Skip if inside a function
+                if self._is_inside_function(stmt, chunk):
+                    continue
+
                 for target in stmt.targets:
                     target_type = type(target).__name__
                     if target_type == "Name" and hasattr(target, 'id'):
-                        global_vars.append(target.id)
+                        # Skip if already declared via LocalAssign
+                        if target.id not in local_declared:
+                            global_vars.append(target.id)
         return global_vars
+
+    def _is_inside_function(self, node: astnodes.Node, chunk: astnodes.Chunk) -> bool:
+        """Check if an AST node is inside a function body
+
+        Traverses the tree to find if node is in the body of any function.
+        """
+        from luaparser import astnodes
+
+        # Recursively check all function bodies
+        def is_in_function_body(check_node, func_node):
+            """Check if check_node is in func_node's body"""
+            if not hasattr(func_node, 'body'):
+                return False
+
+            body = func_node.body
+            if not hasattr(body, 'body'):
+                return False
+
+            for stmt in body.body:
+                # Check if this statement is the check_node
+                if stmt is check_node:
+                    return True
+
+                # Recursively check if the check_node is in nested structures
+                stmt_type = type(stmt).__name__
+                if stmt_type in ("Fornum", "If", "While", "Forin", "Repeat"):
+                    if is_in_function_body(check_node, stmt):
+                        return True
+
+            return False
+
+        # Check all function nodes in the chunk
+        for stmt in chunk.body.body:
+            stmt_type = type(stmt).__name__
+            if stmt_type in ("Function", "LocalFunction"):
+                if is_in_function_body(node, stmt):
+                    return True
+
+        return False
