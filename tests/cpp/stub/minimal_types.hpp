@@ -32,6 +32,10 @@ public:
     Table& operator[](const std::string& key);
     const Table& operator[](const std::string& key) const;
 
+    // Indexing with const char* key
+    Table& operator[](const char* key);
+    const Table& operator[](const char* key) const;
+
     // Indexing with int key
     Table& operator[](int key);
     const Table& operator[](int key) const;
