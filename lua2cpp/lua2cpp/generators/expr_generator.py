@@ -220,6 +220,8 @@ class ExprGenerator(ASTVisitor):
 
     def visit_Call(self, node: astnodes.Call) -> str:
         func = self.generate(node.func)
+        # Mangle 'main' function call to avoid C++ ::main conflict
+        func = "_l2c_main" if func == "main" else func
         args = []
         for i, arg in enumerate(node.args):
             generated = self.generate(arg)

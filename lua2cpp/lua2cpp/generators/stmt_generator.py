@@ -212,6 +212,7 @@ class StmtGenerator(ASTVisitor):
 
     def visit_Function(self, node: astnodes.Function) -> str:
         func_name = node.name.id
+        mangled_name = "_l2c_main" if func_name == "main" else func_name
         return_type = "auto"
         type_info = ASTAnnotationStore.get_type(node)
         if type_info is not None:
@@ -225,7 +226,7 @@ class StmtGenerator(ASTVisitor):
             params.append(f"{param_type} {arg.id}")
         params_str = ", ".join(params)
         body = self._generate_block(node.body, indent="    ")
-        return f"{return_type} {func_name}({params_str}) {body}"
+        return f"{return_type} {mangled_name}({params_str}) {body}"
 
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
         """Generate C++ function definition for local function
@@ -243,6 +244,7 @@ class StmtGenerator(ASTVisitor):
         """
         # Get function name
         func_name = node.name.id
+        mangled_name = "_l2c_main" if func_name == "main" else func_name
 
         # Get return type from type annotation
         return_type = "auto"
@@ -270,9 +272,9 @@ class StmtGenerator(ASTVisitor):
         inferred_return_type = self._infer_return_type(node.body)
 
         if template_params:
-            return f"template<{template_params_str}>\n{inferred_return_type} {func_name}({params_str}) {body}"
+            return f"template<{template_params_str}>\n{inferred_return_type} {mangled_name}({params_str}) {body}"
         else:
-            return f"{inferred_return_type} {func_name}() {body}"
+            return f"{inferred_return_type} {mangled_name}() {body}"
 
     def visit_Call(self, node: astnodes.Call) -> str:
         """Generate C++ function call statement

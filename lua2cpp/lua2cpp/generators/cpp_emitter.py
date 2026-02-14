@@ -158,6 +158,7 @@ class CppEmitter:
         for stmt in chunk.body.body:
             if isinstance(stmt, (astnodes.LocalFunction, astnodes.Function)):
                 func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
+                mangled_name = self._mangle_if_main(func_name)
 
                 # Get return type
                 return_type = "auto"
@@ -182,7 +183,7 @@ class CppEmitter:
                     declarations.append(f"// Local function: {func_name}")
                 else:
                     # Global function: standard forward declaration
-                    declarations.append(f"{return_type} {func_name}({params_str});")
+                    declarations.append(f"{return_type} {mangled_name}({params_str});")
 
         return declarations
 
@@ -399,6 +400,10 @@ class CppEmitter:
 
         sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', result)
         return sanitized if sanitized else 'module'
+
+    def _mangle_if_main(self, func_name: str) -> str:
+        """Return '_l2c_main' for 'main' function, else return name unchanged"""
+        return "_l2c_main" if func_name == "main" else func_name
 
     def _generate_module_body_init(self, filename: str, chunk: astnodes.Chunk) -> str:
         """Generate module initialization function with filename-based naming
