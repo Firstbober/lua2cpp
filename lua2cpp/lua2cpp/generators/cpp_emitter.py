@@ -521,7 +521,45 @@ class CppEmitter:
                     if hasattr(field, 'key') and field.key:
                         field_key_type = type(field.key).__name__
                         if field_key_type == "Name" and hasattr(field.key, 'id') and field.key.id == "arg":
-                            return False
+        return False
+
+    def _is_inside_function(self, node: astnodes.Node, chunk: astnodes.Chunk) -> bool:
+        from luaparser import astnodes
+
+        def find_all_functions(n):
+            functions = []
+            if type(n).__name__ in ("Function", "LocalFunction"):
+                functions.append(n)
+            if hasattr(n, 'body'):
+                if hasattr(n.body, 'body'):
+                    for stmt in n.body.body:
+                        functions.extend(find_all_functions(stmt))
+                else:
+                    functions.extend(find_all_functions(n.body))
+            return functions
+
+        for func_node in find_all_functions(chunk):
+            if self._node_in_function(node, func_node):
+                return True
+        return False
+
+    def _node_in_function(self, node: astnodes.Node, func_node: astnodes.Node) -> bool:
+        def is_in_scope(check_node, scope_node):
+            if check_node is scope_node:
+                return True
+            if not hasattr(scope_node, 'body'):
+                return False
+            body = scope_node.body
+            if hasattr(body, 'body'):
+                if check_node in body.body:
+                    return True
+                for stmt in body.body:
+                    if type(stmt).__name__ in ("Fornum", "If", "While", "Forin", "Repeat"):
+                        if is_in_scope(check_node, stmt):
+                            return True
+            return False
+
+        return is_in_scope(node, func_node)
 
             for attr_name in dir(node):
                 if not attr_name.startswith('_') and attr_name not in ('fields', 'targets', 'key'):
@@ -549,7 +587,7 @@ class CppEmitter:
         Returns global variables that need TABLE declarations.
         - LocalAssign nodes are excluded (they generate auto declarations)
         - Variables that shadow LocalAssign declarations are excluded
-        - Assign nodes inside functions are excluded
+        - Assign nodes inside functions are scanned for implicit globals
         """
         # First, collect all variables declared via LocalAssign at module level
         local_declared = set()
@@ -563,53 +601,60 @@ class CppEmitter:
         global_vars = []
         for stmt in chunk.body.body:
             if type(stmt).__name__ == "Assign" and hasattr(stmt, 'targets'):
-                # Skip if inside a function
-                if self._is_inside_function(stmt, chunk):
-                    continue
-
                 for target in stmt.targets:
                     target_type = type(target).__name__
                     if target_type == "Name" and hasattr(target, 'id'):
-                        # Skip if already declared via LocalAssign
-                        if target.id not in local_declared:
+                        if target.id in local_declared:
+                            continue
+                        if self._is_inside_function(stmt, chunk):
+                            if not self._is_local_in_function(stmt, target.id, chunk):
+                                global_vars.append(target.id)
+                        else:
                             global_vars.append(target.id)
+
         return global_vars
 
-    def _is_inside_function(self, node: astnodes.Node, chunk: astnodes.Chunk) -> bool:
-        """Check if an AST node is inside a function body
-
-        Traverses the tree to find if node is in the body of any function.
-        """
+    def _is_local_in_function(self, assign_node: astnodes.Node, var_name: str, chunk: astnodes.Chunk) -> bool:
         from luaparser import astnodes
 
-        # Recursively check all function bodies
-        def is_in_function_body(check_node, func_node):
-            """Check if check_node is in func_node's body"""
-            if not hasattr(func_node, 'body'):
+        def is_local_in_scope(node: astnodes.Node, current_func: Optional[astnodes.Node] = None) -> bool:
+            if current_func is None:
                 return False
 
-            body = func_node.body
-            if not hasattr(body, 'body'):
+            if not hasattr(current_func, 'body'):
                 return False
 
-            for stmt in body.body:
-                # Check if this statement is the check_node
-                if stmt is check_node:
-                    return True
+            body = current_func.body
+            if hasattr(body, 'body'):
+                for stmt in body.body:
+                    if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
+                        for target in stmt.targets:
+                            target_type = type(target).__name__
+                            if target_type == "Name" and hasattr(target, 'id') and target.id == var_name:
+                                return True
 
-                # Recursively check if the check_node is in nested structures
-                stmt_type = type(stmt).__name__
-                if stmt_type in ("Fornum", "If", "While", "Forin", "Repeat"):
-                    if is_in_function_body(check_node, stmt):
-                        return True
+                    if type(stmt).__name__ == "Fornum" and hasattr(stmt, 'target') and hasattr(stmt.target, 'id'):
+                        if stmt.target.id == var_name:
+                            return True
 
+                    if type(stmt).__name__ in ("Function", "LocalFunction"):
+                        if is_local_in_scope(node, stmt):
+                            return True
+
+                if hasattr(body, 'body'):
+                    for stmt in body.body:
+                        if type(stmt).__name__ == "Fornum" and hasattr(stmt, 'body') and hasattr(stmt.body, 'body'):
+                            if is_local_in_scope(node, stmt):
+                                return True
             return False
 
-        # Check all function nodes in the chunk
         for stmt in chunk.body.body:
             stmt_type = type(stmt).__name__
             if stmt_type in ("Function", "LocalFunction"):
-                if is_in_function_body(node, stmt):
-                    return True
+                if self._is_inside_function(assign_node, chunk):
+                    if stmt is assign_node:
+                        return is_local_in_scope(assign_node, stmt)
+                    if is_local_in_scope(assign_node, stmt):
+                        return True
 
         return False
