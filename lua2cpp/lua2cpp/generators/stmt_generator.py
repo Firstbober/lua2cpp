@@ -40,10 +40,18 @@ class StmtGenerator(ASTVisitor):
         self._expr_gen = ExprGenerator(library_registry)
         # Set cross-reference for anonymous function body generation
         self._expr_gen._stmt_gen = self
+        # Track whether we're inside a function body
+        self._in_function = False
 
     def set_module_context(self, prefix: str, module_state: Set) -> None:
         """Propagate module context to internal ExprGenerator"""
         self._expr_gen.set_module_context(prefix, module_state)
+
+    def enter_function(self):
+        self._in_function = True
+
+    def exit_function(self):
+        self._in_function = False
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from a statement node using double-dispatch
@@ -93,7 +101,7 @@ class StmtGenerator(ASTVisitor):
 
             if init_expr is not None:
                 expr_code = self._expr_gen.generate(init_expr)
-                
+
                 # Check if this is a bare library function REFERENCE (e.g., math.floor, io.write)
                 # This is a function REFERENCE, not a function CALL
                 # Function REFERENCE: local f = math.sqrt (Index node)
@@ -107,8 +115,24 @@ class StmtGenerator(ASTVisitor):
                      expr_code.startswith('os[') or  # e.g., os["time"]
                      '::' in expr_code)  # e.g., math_lib::floor
                 )
-                
-                if is_library_ref:
+
+                # At the start, determine if this is a module-level assignment to module state
+                is_module_state_var = (
+                    hasattr(self._expr_gen, '_module_state') and
+                    hasattr(self._expr_gen, '_module_prefix') and
+                    var_name in self._expr_gen._module_state and
+                    not self._in_function
+                )
+
+                # If module-level assignment to module state var, generate assignment to static
+                if is_module_state_var:
+                    mangled_name = f"{self._expr_gen._module_prefix}_{var_name}"
+                    if is_library_ref:
+                        lambda_wrapper = f"[](auto... args) {{ return {expr_code}(args...); }}"
+                        lines.append(f"{mangled_name} = {lambda_wrapper};")
+                    else:
+                        lines.append(f"{mangled_name} = {expr_code};")
+                elif is_library_ref:
                     # Generate lambda wrapper: [](auto... args) { return <expr_code>(args...); }
                     lambda_wrapper = f"[](auto... args) {{ return {expr_code}(args...); }}"
                     lines.append(f"{var_type} {var_name} = {lambda_wrapper};")
@@ -255,7 +279,9 @@ class StmtGenerator(ASTVisitor):
                 param_type = arg_type_info.cpp_type()
             params.append(f"{param_type} {arg.id}")
         params_str = ", ".join(params)
+        self.enter_function()
         body = self._generate_block(node.body, indent="    ")
+        self.exit_function()
         return f"{return_type} {mangled_name}({params_str}) {body}"
 
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
@@ -296,7 +322,9 @@ class StmtGenerator(ASTVisitor):
         template_params_str = ", ".join([f"typename {p}" for p in template_params])
 
         # Generate function body
+        self.enter_function()
         body = self._generate_block(node.body, indent="    ")
+        self.exit_function()
 
         # Infer return type from function body
         inferred_return_type = self._infer_return_type(node.body)
