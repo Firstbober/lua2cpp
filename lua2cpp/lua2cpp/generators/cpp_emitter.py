@@ -68,6 +68,9 @@ class CppEmitter:
         # Track whether 'arg' variable is referenced in Lua code
         self._has_arg: bool = False
 
+        # Track module-level state variables (locals + implicit globals)
+        self._module_state: set[str] = set()
+
     def generate_file(self, chunk: astnodes.Chunk, input_file: Optional[Path] = None) -> str:
         """Generate complete C++ file from Lua AST chunk
 
@@ -574,6 +577,35 @@ class CppEmitter:
                         if target.id not in local_declared:
                             global_vars.append(target.id)
         return global_vars
+
+    def _collect_module_state(self, chunk: astnodes.Chunk) -> Set[str]:
+        """Collect all module-level state variables (locals + implicit globals)
+
+        Returns set of variable names that need static file-scope declarations.
+        Includes both LocalAssign targets and Assign nodes at module level
+        that aren't already declared as local.
+        """
+        module_state = set()
+
+        # 1. Collect module-level LocalAssign targets
+        for stmt in chunk.body.body:
+            if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
+                for target in stmt.targets:
+                    if hasattr(target, 'id'):
+                        module_state.add(target.id)
+
+        # 2. Collect implicit globals (Assign at module level, not already local)
+        for stmt in chunk.body.body:
+            if type(stmt).__name__ == "Assign" and hasattr(stmt, 'targets'):
+                if self._is_inside_function(stmt, chunk):
+                    continue
+                for target in stmt.targets:
+                    if hasattr(target, 'id') and target.id not in module_state:
+                        module_state.add(target.id)
+
+        # Store in instance variable for use by code generation
+        self._module_state = module_state
+        return module_state
 
     def _is_inside_function(self, node: astnodes.Node, chunk: astnodes.Chunk) -> bool:
         """Check if an AST node is inside a function body
