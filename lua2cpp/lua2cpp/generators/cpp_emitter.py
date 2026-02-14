@@ -10,7 +10,7 @@ Architecture:
 - Module body with remaining statements
 """
 
-from typing import List, Optional
+from typing import List, Optional, Set
 from pathlib import Path
 
 try:
@@ -98,6 +98,13 @@ class CppEmitter:
         """
         lines: List[str] = []
 
+        # Extract and sanitize filename for module_init function name
+        if input_file:
+            filename_stem = input_file.stem
+            sanitized_filename = self._sanitize_filename(filename_stem)
+        else:
+            sanitized_filename = 'module'
+
         # Phase 1: Type resolution
         self._type_resolver = TypeResolver(
             self.scope_manager,
@@ -105,6 +112,16 @@ class CppEmitter:
             self.function_registry
         )
         self._type_resolver.resolve_chunk(chunk)
+
+        # Phase 1.5: Module state (static file-scope globals)
+        self._module_state = self._collect_module_state(chunk)
+        self._module_prefix = sanitized_filename
+
+        if self._module_state:
+            lines.append("// Module state")
+            for var_name in sorted(self._module_state):
+                lines.append(f"static luaValue {self._module_prefix}_{var_name};")
+            lines.append("")
 
         # Phase 2: Generate forward declarations
         forward_decls = self._generate_forward_declarations(chunk)
