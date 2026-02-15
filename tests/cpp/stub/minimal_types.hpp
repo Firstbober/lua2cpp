@@ -58,8 +58,8 @@ using TABLE = Table;
 namespace l2c {
     // Stub functions - do nothing, just for syntax checking
     // Template overloads to accept any type
-    template<typename T>
-    void print(const T&) {}
+    template<typename... Args>
+    void print(Args&&... args) {}
 
     template<typename T>
     NUMBER tonumber(const T&) { return 0; }
