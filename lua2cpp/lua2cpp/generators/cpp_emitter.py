@@ -637,9 +637,59 @@ class CppEmitter:
                     if hasattr(target, 'id') and target.id not in local_declared:
                         module_state.add(target.id)
 
+        # 3. Scan function bodies for implicit globals
+        for stmt in chunk.body.body:
+            stmt_type = type(stmt).__name__
+            if stmt_type in ("Function", "LocalFunction"):
+                func_globals = self._collect_implicit_globals_in_function(stmt, local_declared)
+                module_state.update(func_globals)
+
         # Store in instance variable for use by code generation
         self._module_state = module_state
         return module_state
+
+    def _collect_implicit_globals_in_function(self, func_node, local_declared: Set[str]) -> Set[str]:
+        """Scan function body for implicit globals (Assign without local declaration)"""
+        implicit_globals = set()
+        
+        # Get function parameters
+        func_locals = set()
+        if hasattr(func_node, 'args'):
+            for arg in func_node.args:
+                if hasattr(arg, 'id'):
+                    func_locals.add(arg.id)
+        
+        # Recursively walk function body
+        def walk_stmts(stmts):
+            for stmt in stmts:
+                stmt_type = type(stmt).__name__
+                
+                # Collect LocalAssign targets as function-local
+                if stmt_type == "LocalAssign" and hasattr(stmt, 'targets'):
+                    for target in stmt.targets:
+                        if hasattr(target, 'id'):
+                            func_locals.add(target.id)
+                
+                # Check Assign nodes for implicit globals
+                if stmt_type == "Assign" and hasattr(stmt, 'targets'):
+                    for target in stmt.targets:
+                        if hasattr(target, 'id'):
+                            name = target.id
+                            if name not in func_locals and name not in local_declared:
+                                implicit_globals.add(name)
+                
+                # Recurse into nested blocks
+                if hasattr(stmt, 'body'):
+                    if hasattr(stmt.body, 'body'):
+                        walk_stmts(stmt.body.body)
+                if hasattr(stmt, 'orelse') and stmt.orelse and hasattr(stmt.orelse, 'body'):
+                    walk_stmts(stmt.orelse.body)
+        
+        # Start walking from function body
+        if hasattr(func_node, 'body') and hasattr(func_node.body, 'body'):
+            walk_stmts(func_node.body.body)
+        
+        return implicit_globals
 
     def _is_inside_function(self, node: astnodes.Node, chunk: astnodes.Chunk) -> bool:
         """Check if an AST node is inside a function body
