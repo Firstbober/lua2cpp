@@ -53,6 +53,7 @@ public:
 
 using TABLE = Table;
 #define NEW_TABLE Table()
+#define NIL Table()  // Lua nil represented as empty Table
 
 // Lua-like namespace stub functions
 namespace l2c {

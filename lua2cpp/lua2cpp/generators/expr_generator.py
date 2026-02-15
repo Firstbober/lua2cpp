@@ -117,6 +117,17 @@ class ExprGenerator(ASTVisitor):
         """
         return "false"
 
+    def visit_Nil(self, node: astnodes.Nil) -> str:
+        """Generate C++ representation of Lua nil literal
+
+        Args:
+            node: Nil AST node
+
+        Returns:
+            str: NIL constant (defined in stub header as empty Table)
+        """
+        return "NIL"
+
     def visit_Name(self, node: astnodes.Name) -> str:
         """Generate C++ variable name reference
 
@@ -179,6 +190,11 @@ class ExprGenerator(ASTVisitor):
         left = self.generate(node.left)
         right = self.generate(node.right)
         return f"std::pow({left}, {right})"
+
+    def visit_Concat(self, node: astnodes.Concat) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"table_lib::concat({left}, {right})"
 
     def visit_EqToOp(self, node: astnodes.EqToOp) -> str:
         left = self.generate(node.left)
