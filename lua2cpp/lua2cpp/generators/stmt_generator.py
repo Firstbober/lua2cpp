@@ -170,7 +170,8 @@ class StmtGenerator(ASTVisitor):
 
             if init_expr is not None:
                 value_code = self._expr_gen.generate(init_expr)
-                lines.append(f"{target_code} = {value_code};")
+                if target_code != value_code:
+                    lines.append(f"{target_code} = {value_code};")
             else:
                 lines.append(f"{target_code} = luaValue();")
 
@@ -271,18 +272,25 @@ class StmtGenerator(ASTVisitor):
         type_info = ASTAnnotationStore.get_type(node)
         if type_info is not None:
             return_type = type_info.cpp_type()
+        
+        template_params = []
         params = []
+        param_idx = 1
         for arg in node.args:
-            param_type = "TABLE"
-            arg_type_info = ASTAnnotationStore.get_type(arg)
-            if arg_type_info is not None:
-                param_type = arg_type_info.cpp_type()
-            params.append(f"{param_type} {arg.id}")
+            template_params.append(f"T{param_idx}")
+            params.append(f"T{param_idx} {arg.id}")
+            param_idx += 1
+        
+        template_str = ""
+        if template_params:
+            template_params_str = ", ".join(f"typename {tp}" for tp in template_params)
+            template_str = f"template<{template_params_str}>\n"
+        
         params_str = ", ".join(params)
         self.enter_function()
         body = self._generate_block(node.body, indent="    ")
         self.exit_function()
-        return f"{return_type} {mangled_name}({params_str}) {body}"
+        return f"{template_str}{return_type} {mangled_name}({params_str}) {body}"
 
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
         """Generate C++ function definition for local function
