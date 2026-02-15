@@ -189,6 +189,12 @@ class CppEmitter:
                 if type_info is not None:
                     return_type = type_info.cpp_type()
 
+                # Skip forward declaration for auto return type - C++ can't deduce auto from decl
+                if return_type == "auto":
+                    if isinstance(stmt, astnodes.LocalFunction):
+                        declarations.append(f"// Local function: {func_name}")
+                    continue
+
                 # Build parameter list with template parameters
                 template_params = []
                 params = []
