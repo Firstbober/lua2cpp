@@ -201,6 +201,14 @@ class StmtGenerator(ASTVisitor):
         expr_code = self._expr_gen.generate(node.values[0])
         return f"return {expr_code};"
 
+    def _normalize_block_body(self, block):
+        """Normalize Block.body to a list for iteration.
+        
+        If block.body is a Block object, wrap it in a list.
+        If it's already a list, return it as-is.
+        """
+        return block.body if isinstance(block.body, list) else [block.body]
+
     def _generate_block(self, block: astnodes.Block, indent: str = "    ") -> str:
         """Generate C++ code block from Lua Block node
 
@@ -212,7 +220,7 @@ class StmtGenerator(ASTVisitor):
             str: C++ code block as string with braces
         """
         statements = []
-        for stmt in block.body:
+        for stmt in self._normalize_block_body(block):
             # Generate each statement using double-dispatch
             stmt_code = self.visit(stmt)
             statements.append(f"{indent}{stmt_code}")
@@ -220,7 +228,7 @@ class StmtGenerator(ASTVisitor):
         return "{\n" + "\n".join(statements) + "\n}"
 
     def _infer_return_type(self, block: astnodes.Block) -> str:
-        for stmt in block.body:
+        for stmt in self._normalize_block_body(block):
             if isinstance(stmt, astnodes.Return):
                 for value in stmt.values:
                     expr_code = self._expr_gen.generate(value)
@@ -232,6 +240,18 @@ class StmtGenerator(ASTVisitor):
                 if stmt.orelse and hasattr(stmt.orelse, 'body'):
                     if self._infer_return_type(stmt.orelse) == "TABLE":
                         return "TABLE"
+
+                orelse = stmt.orelse
+                if hasattr(orelse, 'body') and orelse.body:
+                    for stmt2 in self._normalize_block_body(orelse):
+                        if isinstance(stmt2, astnodes.Return):
+                            for value in stmt2.values:
+                                expr_code = self._expr_gen.generate(value)
+                                if "NEW_TABLE" in expr_code or "Table" in expr_code:
+                                    return "TABLE"
+                        elif isinstance(stmt2, astnodes.If):
+                            if self._infer_return_type(stmt2.body) == "TABLE":
+                                return "TABLE"
         return "double"
 
     def visit_If(self, node: astnodes.If) -> str:
@@ -239,8 +259,15 @@ class StmtGenerator(ASTVisitor):
         if_body = self._generate_block(node.body)
         result = f"if (is_truthy({cond_code})) {if_body}"
         if node.orelse and node.orelse.body:
-            else_body = self._generate_block(node.orelse)
-            result += f"\nelse {else_body}"
+            # Normalize orelse (could be Block or If node for elseif chains)
+            orelse = node.orelse
+            if hasattr(orelse, 'body') and orelse.body:
+                if isinstance(orelse.body, list):
+                    else_body = self._generate_block(orelse)
+                else:
+                    # orelse is itself an If node (elseif chain)
+                    else_body = self.visit_If(orelse)
+                result += f"\nelse {else_body}"
         return result
 
     def visit_While(self, node: astnodes.While) -> str:
@@ -266,7 +293,18 @@ class StmtGenerator(ASTVisitor):
         return f"for ({init}; {cond}; {incr}) {loop_body}"
 
     def visit_Function(self, node: astnodes.Function) -> str:
-        func_name = node.name.id
+        # Handle both Name and Index (e.g., function Complex.conj() style)
+        if isinstance(node.name, astnodes.Name):
+            func_name = node.name.id
+        elif isinstance(node.name, astnodes.Index):
+            if isinstance(node.name.value, astnodes.Name) and isinstance(node.name.idx, astnodes.Name):
+                table_name = node.name.value.id
+                method_name = node.name.idx.id
+                func_name = f"{table_name}_{method_name}"
+            else:
+                func_name = "anonymous_method"
+        else:
+            func_name = "anonymous"
         mangled_name = "_l2c_main" if func_name == "main" else func_name
         return_type = "auto"
         type_info = ASTAnnotationStore.get_type(node)
@@ -277,6 +315,9 @@ class StmtGenerator(ASTVisitor):
         params = []
         param_idx = 1
         for arg in node.args:
+            # Skip Varargs (...), can't generate C++ params for it
+            if isinstance(arg, astnodes.Varargs):
+                continue
             template_params.append(f"T{param_idx}")
             params.append(f"T{param_idx} {arg.id}")
             param_idx += 1
@@ -320,6 +361,9 @@ class StmtGenerator(ASTVisitor):
         params = []
         template_params = []
         for arg in node.args:
+            # Skip Varargs (...), can't generate C++ params for it
+            if isinstance(arg, astnodes.Varargs):
+                continue
             template_params.append(f"{arg.id}_t")
             params.append(f"{arg.id}_t {arg.id}")
             arg_type_info = ASTAnnotationStore.get_type(arg)

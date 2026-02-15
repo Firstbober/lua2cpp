@@ -178,7 +178,7 @@ class CppEmitter:
         """
         declarations: List[str] = []
 
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             if isinstance(stmt, (astnodes.LocalFunction, astnodes.Function)):
                 func_name = stmt.name.id if hasattr(stmt.name, 'id') else "anonymous"
                 mangled_name = self._mangle_if_main(func_name)
@@ -242,7 +242,7 @@ class CppEmitter:
         """
         functions: List[str] = []
 
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             if isinstance(stmt, (astnodes.LocalFunction, astnodes.Function)):
                 # Generate function code using StmtGenerator
                 func_code = self._stmt_gen.generate(stmt)
@@ -264,7 +264,7 @@ class CppEmitter:
         """
         statements: List[str] = []
 
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             # Skip function definitions (they're generated separately)
             if not isinstance(stmt, (astnodes.LocalFunction, astnodes.Function)):
                 stmt_code = self._stmt_gen.generate(stmt)
@@ -582,7 +582,7 @@ class CppEmitter:
         """
         # First, collect all variables declared via LocalAssign at module level
         local_declared = set()
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
                 for target in stmt.targets:
                     if hasattr(target, 'id'):
@@ -590,7 +590,7 @@ class CppEmitter:
 
         # Then collect global Assign targets, excluding those already declared locally
         global_vars = []
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             if type(stmt).__name__ == "Assign" and hasattr(stmt, 'targets'):
                 # Skip if inside a function
                 if self._is_inside_function(stmt, chunk):
@@ -617,7 +617,7 @@ class CppEmitter:
         local_declared = set()
 
         # 1. Collect module-level LocalAssign targets (exclude function refs)
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
                 for i, target in enumerate(stmt.targets):
                     if hasattr(target, 'id'):
@@ -635,7 +635,7 @@ class CppEmitter:
                         local_declared.add(target.id)
 
         # 2. Collect implicit globals (Assign at module level, not already local)
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             if type(stmt).__name__ == "Assign" and hasattr(stmt, 'targets'):
                 if self._is_inside_function(stmt, chunk):
                     continue
@@ -644,7 +644,7 @@ class CppEmitter:
                         module_state.add(target.id)
 
         # 3. Scan function bodies for implicit globals
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             stmt_type = type(stmt).__name__
             if stmt_type in ("Function", "LocalFunction"):
                 func_globals = self._collect_implicit_globals_in_function(stmt, local_declared)
@@ -687,13 +687,23 @@ class CppEmitter:
                 # Recurse into nested blocks
                 if hasattr(stmt, 'body'):
                     if hasattr(stmt.body, 'body'):
-                        walk_stmts(stmt.body.body)
-                if hasattr(stmt, 'orelse') and stmt.orelse and hasattr(stmt.orelse, 'body'):
-                    walk_stmts(stmt.orelse.body)
+                        if isinstance(stmt.body.body, list):
+                            walk_stmts(stmt.body.body)
+                        else:
+                            walk_stmts([stmt.body.body])
+                if hasattr(stmt, 'orelse') and stmt.orelse:
+                    orelse = stmt.orelse
+                    if hasattr(orelse, 'body') and isinstance(orelse.body, list):
+                        walk_stmts(orelse.body)
+                    else:
+                        walk_stmts([orelse])
         
         # Start walking from function body
         if hasattr(func_node, 'body') and hasattr(func_node.body, 'body'):
-            walk_stmts(func_node.body.body)
+            if isinstance(func_node.body.body, list):
+                walk_stmts(func_node.body.body)
+            else:
+                walk_stmts([func_node.body.body])
         
         return implicit_globals
 
@@ -714,7 +724,7 @@ class CppEmitter:
             if not hasattr(body, 'body'):
                 return False
 
-            for stmt in body.body:
+            for stmt in (body.body if isinstance(body.body, list) else [body.body]):
                 # Check if this statement is the check_node
                 if stmt is check_node:
                     return True
@@ -728,7 +738,7 @@ class CppEmitter:
             return False
 
         # Check all function nodes in the chunk
-        for stmt in chunk.body.body:
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             stmt_type = type(stmt).__name__
             if stmt_type in ("Function", "LocalFunction"):
                 if is_in_function_body(node, stmt):

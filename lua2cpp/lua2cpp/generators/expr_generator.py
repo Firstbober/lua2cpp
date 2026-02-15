@@ -264,6 +264,53 @@ class ExprGenerator(ASTVisitor):
             args_str = ", ".join(args) if args else ""
             return f"{func}({args_str})"
 
+    def visit_Invoke(self, node: astnodes.Invoke) -> str:
+        """Handle method calls like obj:method(args) as expressions.
+        
+        In Lua, obj:method(args) is sugar for obj.method(obj, args).
+        For Invoke nodes: node.source = object, node.func = method name, node.args = arguments
+        """
+        # Known string methods that should use string_lib::
+        STRING_METHODS = {'sub', 'find', 'gmatch', 'gsub', 'format', 'lower', 'upper', 
+                         'len', 'rep', 'reverse', 'byte', 'char', 'match', 'dump'}
+        
+        # For Invoke nodes, node.source is the object, node.func is the method name
+        obj = node.source
+        method = node.func
+        
+        # Get object name
+        if isinstance(obj, astnodes.Name):
+            obj_name = obj.id
+        else:
+            obj_name = self.generate(obj)
+        
+        # Get method name
+        if isinstance(method, astnodes.Name):
+            method_name = method.id
+        else:
+            method_name = str(method)
+        
+        # Check if this is a string method on a variable
+        if method_name in STRING_METHODS:
+            # String method: seq:sub(a,b) -> string_lib::sub(seq, a, b)
+            args = [self.generate(arg) for arg in node.args]
+            args_str = ", ".join(args) if args else ""
+            return f"string_lib::{method_name}({obj_name}{', ' if args_str else ''}{args_str})"
+        else:
+            # Generic method call: obj:method() -> obj.method(obj)
+            args = [self.generate(arg) for arg in node.args]
+            args_str = ", ".join(args) if args else ""
+            return f"{obj_name}.{method_name}({obj_name}{', ' if args_str else ''}{args_str})"
+
+    def visit_Dots(self, node: astnodes.Dots) -> str:
+        """Handle ... (varargs) in expressions.
+        
+        In Lua, ... expands to all varargs passed to the function.
+        For now, generate a placeholder since C++ variadic templates are complex.
+        """
+        # Generate a placeholder that won't break compilation
+        return "/* variadic args */"
+
     def _is_global_function_call(self, node: astnodes.Call) -> bool:
         """Check if this is a call to a global Lua library function
 
