@@ -216,11 +216,17 @@ class ExprGenerator(ASTVisitor):
         return f"(({left}) ? ({right}) : ({left}))"
 
     def visit_OrLoOp(self, node: astnodes.OrLoOp) -> str:
+        # Check if left is AndLoOp (ternary pattern: cond and x or y)
         if isinstance(node.left, astnodes.AndLoOp):
             cond = self.generate(node.left.left)
             truthy = self.generate(node.left.right)
             falsy = self.generate(node.right)
             return f"(is_truthy({cond}) ? ({truthy}) : ({falsy}))"
+        
+        if self._is_library_function_reference(node.left):
+            return self.generate(node.right)
+        
+        # Regular or: (cond) ? (cond) : (fallback)
         left = self.generate(node.left)
         right = self.generate(node.right)
         return f"(({left}) ? ({left}) : ({right}))"
@@ -358,6 +364,25 @@ class ExprGenerator(ASTVisitor):
 
         library_name = node.value.id
         return self._library_registry.is_standard_library(library_name)
+
+    def _is_library_function_reference(self, node) -> bool:
+        """Check if node is a library function reference like math.floor
+
+        For 'or' expressions where left is a library function (e.g., math.ifloor),
+        we can emit the function directly since stub functions always "exist".
+
+        Args:
+            node: AST node to check
+
+        Returns:
+            True if this is a library function reference, False otherwise
+        """
+        if not isinstance(node, astnodes.Index):
+            return False
+        if not isinstance(node.value, astnodes.Name):
+            return False
+        lib_name = node.value.id
+        return lib_name in ('math', 'io', 'string', 'table', 'os')
 
     def visit_Table(self, node: astnodes.Table) -> str:
         """Generate C++ table constructor
