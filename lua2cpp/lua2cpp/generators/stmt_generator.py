@@ -17,10 +17,9 @@ except ImportError:
     )
 
 if TYPE_CHECKING:
-    from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
+    from lua2cpp.core.library_registry import LibraryFunctionRegistry
 
-if TYPE_CHECKING:
-    from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
+from lua2cpp.core.call_convention import CallConventionRegistry, CallConvention, flatten_index_chain_parts, get_root_module
 
 
 class StmtGenerator(ASTVisitor):
@@ -30,16 +29,18 @@ class StmtGenerator(ASTVisitor):
     Integrates with ExprGenerator for expression generation.
     """
 
-    def __init__(self, library_registry: Optional[_LibraryFunctionRegistry] = None) -> None:
+    def __init__(self, library_registry: Optional["LibraryFunctionRegistry"] = None,
+                 convention_registry: Optional[CallConventionRegistry] = None) -> None:
         """Initialize statement generator with expression generator
 
         Args:
             library_registry: Optional registry for detecting library function calls.
+            convention_registry: Optional registry for call conventions.
         """
         super().__init__()
-        self._expr_gen = ExprGenerator(library_registry)
-        # Set cross-reference for anonymous function body generation
-        self._expr_gen._stmt_gen = self
+        self._library_registry = library_registry
+        self._convention_registry = convention_registry or CallConventionRegistry()
+        self._expr_gen = ExprGenerator(library_registry, stmt_gen=self, convention_registry=self._convention_registry)
         # Track whether we're inside a function body
         self._in_function = False
 

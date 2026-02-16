@@ -7,6 +7,7 @@ Implements double-dispatch pattern for literal and name expressions.
 from typing import Any, Optional, Set, TYPE_CHECKING
 from lua2cpp.core.ast_visitor import ASTVisitor
 from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
+from lua2cpp.core.call_convention import CallConventionRegistry, CallConvention, flatten_index_chain_parts, get_root_module
 from lua2cpp.core.types import ASTAnnotationStore, TypeKind
 
 try:
@@ -27,7 +28,9 @@ class ExprGenerator(ASTVisitor):
     More complex expressions (operators, calls, indexing) are handled separately.
     """
 
-    def __init__(self, library_registry: Optional[_LibraryFunctionRegistry] = None, stmt_gen: Optional[Any] = None) -> None:
+    def __init__(self, library_registry: Optional[_LibraryFunctionRegistry] = None, 
+                 stmt_gen: Optional[Any] = None,
+                 convention_registry: Optional[CallConventionRegistry] = None) -> None:
         """Initialize expression generator
 
         Args:
@@ -38,6 +41,7 @@ class ExprGenerator(ASTVisitor):
         super().__init__()
         self._library_registry = library_registry
         self._stmt_gen = stmt_gen
+        self._convention_registry = convention_registry or CallConventionRegistry()
 
         # Module context for name mangling
         self._module_prefix: str = ""
@@ -383,11 +387,11 @@ class ExprGenerator(ASTVisitor):
     def visit_Index(self, node: astnodes.Index) -> str:
         """Generate C++ index expression
 
-        For library function calls (io.write, math.sqrt), generates member access
-        syntax (io.write) instead of pointer access (io->write).
-
-        For table member access, uses bracket notation (["key"]) instead of pointer
-        access (->key) since TABLE is a value type, not a pointer.
+        Uses call convention registry to determine how to generate access:
+        - NAMESPACE: X::Y() for standard libraries
+        - FLAT: X_Y() for flat function names
+        - FLAT_NESTED: X_Y_Z() for flattened nested paths
+        - TABLE: X["Y"] for dynamic table access
 
         Args:
             node: Index AST node with value and idx
@@ -395,26 +399,50 @@ class ExprGenerator(ASTVisitor):
         Returns:
             str: Generated C++ code
         """
-        value = self.generate(node.value)
-        idx = self.generate(node.idx)
-
-        if hasattr(node, 'notation') and str(node.notation) == "IndexNotation.DOT":
-            if self._is_library_index(node):
-                lib_map = {
-                    'io': 'io',
-                    'string': 'string_lib',
-                    'math': 'math_lib',
-                    'table': 'table_lib',
-                    'os': 'os_lib',
-                }
-                lib_name = node.value.id if isinstance(node.value, astnodes.Name) else value
-                cpp_lib = lib_map.get(lib_name, value)
-                return f"{cpp_lib}::{idx}"
-            else:
-                # Default to bracket notation for table member access
-                return f'{value}["{idx}"]'
+        # Get root module and its convention
+        root_module = get_root_module(node)
+        config = self._convention_registry.get_config(root_module)
+        
+        if config.convention == CallConvention.NAMESPACE:
+            # For NAMESPACE: generate X::Y or use cpp_namespace if specified
+            if isinstance(node.value, astnodes.Name) and isinstance(node.idx, astnodes.Name):
+                cpp_ns = config.cpp_namespace or node.value.id
+                return f"{cpp_ns}::{node.idx.id}"
+            # Nested index - use namespace for first level, then ::
+            parts = flatten_index_chain_parts(node)
+            if len(parts) >= 2:
+                cpp_ns = config.cpp_namespace or parts[0]
+                return cpp_ns + "::" + "::".join(parts[1:])
+            # Fall through to table access
+            value = self.generate(node.value)
+            idx = self.generate(node.idx)
+            return f'{value}["{idx}"]'
+        
+        elif config.convention in (CallConvention.FLAT, CallConvention.FLAT_NESTED):
+            # For FLAT/FLAT_NESTED: generate flattened name like love_timer_step
+            parts = flatten_index_chain_parts(node)
+            if len(parts) >= 2:
+                prefix = config.cpp_prefix or f"{parts[0]}_"
+                if config.convention == CallConvention.FLAT and len(parts) > 2:
+                    # FLAT: only flatten one level (X.Y -> X_Y, X.Y.Z -> X_Y["Z"])
+                    return prefix + parts[1]
+                else:
+                    # FLAT_NESTED: flatten all levels (X.Y.Z -> X_Y_Z)
+                    return prefix + "_".join(parts[1:])
+            # Single element - shouldn't happen for Index, but handle gracefully
+            value = self.generate(node.value)
+            idx = self.generate(node.idx)
+            return f'{value}["{idx}"]'
+        
         else:
-            return f"{value}[{idx}]"
+            # TABLE or unknown convention: use bracket notation
+            value = self.generate(node.value)
+            idx = self.generate(node.idx)
+            
+            if hasattr(node, 'notation') and str(node.notation) == "IndexNotation.DOT":
+                return f'{value}["{idx}"]'
+            else:
+                return f"{value}[{idx}]"
 
     def _is_library_index(self, node: astnodes.Index) -> bool:
         """Check if Index node represents a library function reference

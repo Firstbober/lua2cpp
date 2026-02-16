@@ -18,9 +18,10 @@ from lua2cpp.generators import CppEmitter
 from lua2cpp.generators.header_generator import HeaderGenerator
 from lua2cpp.core.library_call_collector import LibraryCallCollector, LibraryCallCollector as Collector
 from lua2cpp.analyzers.y_combinator_detector import YCombinatorDetector
+from lua2cpp.core.call_convention import CallConventionRegistry
 
 
-def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False) -> Tuple[str, List, Optional[Collector]]:
+def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False, convention_registry: Optional[CallConventionRegistry] = None) -> Tuple[str, List, Optional[Collector]]:
     """Transpile a single Lua file to C++
 
     Args:
@@ -28,6 +29,7 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
         collect_library_calls: If True, also collect library calls for header generation
         output_dir: Optional output directory for generated files
         verbose: If True, print verbose file generation details
+        convention_registry: Optional registry for call conventions
 
     Returns:
         Tuple of (generated C++ code, list of LibraryCall objects if collect_library_calls=True else [])
@@ -71,7 +73,7 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
         collector.visit(tree)
         library_calls = collector.get_library_calls()
 
-    emitter = CppEmitter()
+    emitter = CppEmitter(convention_registry=convention_registry)
     cpp_code = emitter.generate_file(tree, input_file)
 
     if y_warnings:
@@ -191,6 +193,18 @@ def main():
         action="store_true",
         help="Generate as library (output {input_name}.hpp with forward declarations)"
     )
+    parser.add_argument(
+        "--convention",
+        action="append",
+        default=[],
+        metavar="MODULE=STYLE",
+        help="Set call convention for a module (e.g., love=flat_nested,G=flat). Styles: namespace, flat, flat_nested, table"
+    )
+    parser.add_argument(
+        "--convention-file",
+        type=Path,
+        help="Load call conventions from YAML config file"
+    )
 
     args = parser.parse_args()
 
@@ -203,8 +217,25 @@ def main():
         print(f"Error: Cannot create output directory {args.output_dir}: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Create and configure call convention registry
+    convention_registry = CallConventionRegistry()
+    
+    # Load from YAML file if specified
+    if args.convention_file:
+        convention_registry.load_from_yaml(args.convention_file)
+    
+    # Load from CLI arguments
+    if args.convention:
+        convention_registry.load_from_cli(args.convention)
+    
     try:
-        cpp_code, library_calls, collector = transpile_file(args.input, collect_library_calls=args.header, output_dir=args.output_dir, verbose=args.verbose)
+        cpp_code, library_calls, collector = transpile_file(
+            args.input, 
+            collect_library_calls=args.header, 
+            output_dir=args.output_dir, 
+            verbose=args.verbose,
+            convention_registry=convention_registry
+        )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

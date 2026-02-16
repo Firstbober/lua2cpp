@@ -28,6 +28,7 @@ from lua2cpp.generators.stmt_generator import StmtGenerator
 from lua2cpp.core.library_call_collector import LibraryCallCollector
 from lua2cpp.generators.header_generator import HeaderGenerator
 from lua2cpp.core.library_registry import LibraryFunctionRegistry
+from lua2cpp.core.call_convention import CallConventionRegistry
 
 
 class CppEmitter:
@@ -45,20 +46,24 @@ class CppEmitter:
     6. Returns complete C++ code
     """
 
-    def __init__(self) -> None:
+    def __init__(self, convention_registry: Optional[CallConventionRegistry] = None) -> None:
         """Initialize C++ emitter with required components
 
         Creates ScopeManager, SymbolTable, and FunctionSignatureRegistry
         for type inference and symbol resolution.
+
+        Args:
+            convention_registry: Optional registry for call conventions (default: create new)
         """
         self.scope_manager = ScopeManager()
         self.symbol_table = SymbolTable(self.scope_manager)
         self.function_registry = FunctionSignatureRegistry()
         self._library_registry = LibraryFunctionRegistry()
+        self._convention_registry = convention_registry or CallConventionRegistry()
 
         # Generators for expressions and statements
-        self._expr_gen = ExprGenerator(self._library_registry)
-        self._stmt_gen = StmtGenerator(self._library_registry)
+        self._expr_gen = ExprGenerator(self._library_registry, convention_registry=self._convention_registry)
+        self._stmt_gen = StmtGenerator(self._library_registry, convention_registry=self._convention_registry)
         # Set cross-reference for anonymous function generation
         self._expr_gen._stmt_gen = self._stmt_gen
 
