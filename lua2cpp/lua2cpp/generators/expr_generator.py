@@ -186,6 +186,11 @@ class ExprGenerator(ASTVisitor):
         right = self.generate(node.right)
         return f"{left} / {right}"
 
+    def visit_ModOp(self, node: astnodes.ModOp) -> str:
+        left = self.generate(node.left)
+        right = self.generate(node.right)
+        return f"({left} % {right})"
+
     def visit_ExpoOp(self, node: astnodes.ExpoOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
@@ -254,6 +259,10 @@ class ExprGenerator(ASTVisitor):
     def visit_ULengthOP(self, node: astnodes.ULengthOP) -> str:
         operand = self.generate(node.operand)
         return f"l2c::get_length({operand})"
+
+    def visit_ULNotOp(self, node: astnodes.ULNotOp) -> str:
+        operand = self.generate(node.operand)
+        return f"(!{operand})"
 
     def visit_Call(self, node: astnodes.Call) -> str:
         func = self.generate(node.func)
