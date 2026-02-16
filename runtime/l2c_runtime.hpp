@@ -13,6 +13,16 @@
 #include <ctime>
 #include <algorithm>
 
+// ============================================================================
+// Lua Type Aliases
+// ============================================================================
+using NUMBER = double;
+using STRING = std::string;
+using BOOLEAN = bool;
+using TABLE = luaValue;
+#define NEW_TABLE luaValue::new_table()
+#define NIL luaValue()
+
 namespace l2c {
 
 // ============================================================================

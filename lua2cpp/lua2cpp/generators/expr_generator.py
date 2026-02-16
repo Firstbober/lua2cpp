@@ -157,7 +157,7 @@ class ExprGenerator(ASTVisitor):
         """
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} + {right}"
+        return f"({left} + {right})"
 
     def visit_SubOp(self, node: astnodes.SubOp) -> str:
         """Generate C++ subtraction operation
@@ -170,7 +170,7 @@ class ExprGenerator(ASTVisitor):
         """
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} - {right}"
+        return f"({left} - {right})"
 
     def visit_MultOp(self, node: astnodes.MultOp) -> str:
         """Generate C++ multiplication operation
@@ -183,12 +183,12 @@ class ExprGenerator(ASTVisitor):
         """
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} * {right}"
+        return f"({left} * {right})"
 
     def visit_FloatDivOp(self, node: astnodes.FloatDivOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} / {right}"
+        return f"({left} / {right})"
 
     def visit_ModOp(self, node: astnodes.ModOp) -> str:
         left = self.generate(node.left)
@@ -208,32 +208,32 @@ class ExprGenerator(ASTVisitor):
     def visit_EqToOp(self, node: astnodes.EqToOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} == {right}"
+        return f"({left} == {right})"
 
     def visit_LessThanOp(self, node: astnodes.LessThanOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} < {right}"
+        return f"({left} < {right})"
 
     def visit_GreaterThanOp(self, node: astnodes.GreaterThanOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} > {right}"
+        return f"({left} > {right})"
 
     def visit_LessOrEqThanOp(self, node: astnodes.LessOrEqThanOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} <= {right}"
+        return f"({left} <= {right})"
 
     def visit_GreaterOrEqThanOp(self, node: astnodes.GreaterOrEqThanOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} >= {right}"
+        return f"({left} >= {right})"
 
     def visit_NotEqToOp(self, node: astnodes.NotEqToOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"{left} != {right}"
+        return f"({left} != {right})"
 
     def visit_AndLoOp(self, node: astnodes.AndLoOp) -> str:
         left = self.generate(node.left)
@@ -373,16 +373,30 @@ class ExprGenerator(ASTVisitor):
     def _generate_library_method_call(self, node: astnodes.Call, args: list) -> str:
         lib_name = node.func.value.id
         method_name = node.func.idx.id if hasattr(node.func.idx, 'id') else str(node.func.idx)
-        lib_map = {
-            'io': 'io',
-            'string': 'string_lib',
-            'math': 'math_lib',
-            'table': 'table_lib',
-            'os': 'os_lib',
+        
+        lib_func_map = {
+            'io': {'write': 'io_write', 'flush': 'io_flush', 'read': 'io_read'},
+            'string': {'format': 'string_format', 'len': 'string_len', 'sub': 'string_sub', 
+                       'upper': 'string_upper', 'lower': 'string_lower', 'byte': 'string_byte',
+                       'char': 'string_char', 'rep': 'string_rep', 'find': 'string_find',
+                       'gsub': 'string_gsub', 'match': 'string_match', 'gmatch': 'string_gmatch'},
+            'math': {'sqrt': 'math_sqrt', 'abs': 'math_abs', 'floor': 'math_floor',
+                     'ceil': 'math_ceil', 'sin': 'math_sin', 'cos': 'math_cos',
+                     'tan': 'math_tan', 'log': 'math_log', 'exp': 'math_exp',
+                     'pow': 'math_pow', 'min': 'math_min', 'max': 'math_max',
+                     'random': 'math_random', 'randomseed': 'math_randomseed',
+                     'modf': 'math_modf', 'fmod': 'math_fmod', 'atan': 'math_atan',
+                     'asin': 'math_asin', 'acos': 'math_acos', 'deg': 'math_deg',
+                     'rad': 'math_rad', 'huge': 'math_huge'},
+            'table': {'unpack': 'table_unpack', 'remove': 'table_remove', 'sort': 'table_sort',
+                      'concat': 'table_concat', 'insert': 'table_insert', 'pack': 'table_pack'},
+            'os': {'clock': 'os_clock', 'time': 'os_time', 'date': 'os_date', 'exit': 'os_exit',
+                   'difftime': 'os_difftime', 'getenv': 'os_getenv', 'remove': 'os_remove',
+                   'rename': 'os_rename', 'tmpname': 'os_tmpname'},
         }
-        cpp_lib = lib_map.get(lib_name, lib_name)
+        func_name = lib_func_map.get(lib_name, {}).get(method_name, f"{lib_name}_{method_name}")
         args_str = ", ".join(args) if args else ""
-        return f"{cpp_lib}::{method_name}({args_str})"
+        return f"l2c::{func_name}({args_str})"
 
     def visit_Index(self, node: astnodes.Index) -> str:
         """Generate C++ index expression
