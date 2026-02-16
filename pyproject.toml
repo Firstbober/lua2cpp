@@ -1,7 +1,7 @@
 [project]
 name = "lua2c"
 version = "0.1.0"
-description = "Lua 5.4 to C transpiler"
+description = "Lua 5.4 to C++ transpiler"
 requires-python = ">=3.10"
 dependencies = [
     "luaparser>=4.0.0",
@@ -19,15 +19,16 @@ dev = [
 requires = ["setuptools>=68.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["lua2c", "lua2c.core", "lua2c.generators", "lua2c.module_system", "lua2c.cli"]
+[tool.setuptools.packages.find]
+where = ["lua2cpp"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/python"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=lua2c --cov-report=term-missing --cov-report=html"
+addopts = "-v --cov=lua2cpp --cov-report=term-missing --cov-report=html"
+pythonpath = ["lua2cpp"]
 
 [tool.black]
 line-length = 100
