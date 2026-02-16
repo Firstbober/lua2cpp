@@ -98,7 +98,7 @@ class StmtGenerator(ASTVisitor):
             if type_info is not None:
                 var_type = type_info.cpp_type()
             else:
-                var_type = "auto"
+                var_type = "luaValue"
 
             if init_expr is not None:
                 expr_code = self._expr_gen.generate(init_expr)
@@ -320,7 +320,7 @@ class StmtGenerator(ASTVisitor):
             if isinstance(arg, astnodes.Varargs):
                 continue
             template_params.append(f"T{param_idx}")
-            params.append(f"T{param_idx} {arg.id}")
+            params.append(f"T{param_idx}& {arg.id}")
             param_idx += 1
         
         template_str = ""
@@ -366,7 +366,7 @@ class StmtGenerator(ASTVisitor):
             if isinstance(arg, astnodes.Varargs):
                 continue
             template_params.append(f"{arg.id}_t")
-            params.append(f"{arg.id}_t {arg.id}")
+            params.append(f"{arg.id}_t& {arg.id}")
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()

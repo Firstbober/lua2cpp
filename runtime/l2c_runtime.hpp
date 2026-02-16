@@ -103,6 +103,7 @@ inline luaValue assert(const luaValue& condition) {
 template<typename... Args>
 inline void io_write(Args&&... args) {
     ((std::cout << to_string(args)), ...);
+    std::cout << std::flush;
 }
 // Non-template version for backward compatibility
 inline void io_write(const std::vector<luaValue>& args) {

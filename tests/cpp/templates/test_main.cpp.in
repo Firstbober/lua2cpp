@@ -1,16 +1,23 @@
 // Auto-generated main for @MODULE_NAME@
 #include "l2c_runtime.hpp"
+#include <iostream>
+#include <exception>
 // Include the .cpp directly for template functions (no separate header needed)
 #include "@MODULE_FILE@.cpp"
 
 int main(int argc, char* argv[]) {
-    // Create arg table (Lua 1-indexed)
-    luaValue arg = luaValue::new_table();
-    for (int i = 1; i < argc; ++i) {
-        arg[i] = luaValue(argv[i]);
-    }
+    try {
+        // Create arg table (Lua 1-indexed)
+        luaValue arg = luaValue::new_table();
+        for (int i = 1; i < argc; ++i) {
+            arg[i] = luaValue(argv[i]);
+        }
 
-    // Call module init
-    @MODULE_INIT_FUNC@(arg);
-    return 0;
+        // Call module init
+        @MODULE_INIT_FUNC@(arg);
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Exception: " << e.what() << std::endl;
+        return 1;
+    }
 }

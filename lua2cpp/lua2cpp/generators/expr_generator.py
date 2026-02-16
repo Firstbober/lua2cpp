@@ -246,6 +246,9 @@ class ExprGenerator(ASTVisitor):
             cond = self.generate(node.left.left)
             truthy = self.generate(node.left.right)
             falsy = self.generate(node.right)
+            # Wrap numeric literals in luaValue() for type consistency
+            if isinstance(node.right, astnodes.Number):
+                falsy = f"luaValue({falsy})"
             return f"(is_truthy({cond}) ? ({truthy}) : ({falsy}))"
         
         if self._is_library_function_reference(node.left):
@@ -254,6 +257,9 @@ class ExprGenerator(ASTVisitor):
         # Regular or: (cond) ? (cond) : (fallback)
         left = self.generate(node.left)
         right = self.generate(node.right)
+        # Wrap numeric literals in luaValue() for type consistency
+        if isinstance(node.right, astnodes.Number):
+            right = f"luaValue({right})"
         return f"(({left}) ? ({left}) : ({right}))"
 
     def visit_UMinusOp(self, node: astnodes.UMinusOp) -> str:

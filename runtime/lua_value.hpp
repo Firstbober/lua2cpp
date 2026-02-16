@@ -30,7 +30,7 @@ private:
 public:
     luaValue();
     explicit luaValue(bool val);
-    explicit luaValue(int val);
+    luaValue(int val);
     luaValue(double val);
     luaValue(const char* val);
     luaValue(const std::string& val);
