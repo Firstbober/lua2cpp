@@ -128,7 +128,9 @@ class CppEmitter:
         if self._module_state:
             lines.append("// Module state")
             for var_name in sorted(self._module_state):
-                lines.append(f"static TABLE {self._module_prefix}_{var_name};")
+                var_type = self.get_inferred_type(var_name)
+                cpp_type = self._get_cpp_type_name(var_type.kind)
+                lines.append(f"static {cpp_type} {self._module_prefix}_{var_name};")
             lines.append("")
 
         # Phase 2: Generate forward declarations
@@ -312,6 +314,29 @@ class CppEmitter:
         if self._type_resolver is None:
             raise RuntimeError("Type resolver not initialized. Call generate_file() first.")
         return self._type_resolver.get_type(symbol_name)
+
+    def _get_cpp_type_name(self, type_kind) -> str:
+        """Map TypeKind to C++ type name for module state declarations.
+
+        Args:
+            type_kind: TypeKind enum value
+
+        Returns:
+            C++ type name string (NUMBER, STRING, TABLE, etc.)
+        """
+        from lua2cpp.core.types import TypeKind
+        
+        type_map = {
+            TypeKind.NUMBER: "NUMBER",
+            TypeKind.STRING: "STRING",
+            TypeKind.BOOLEAN: "BOOLEAN",
+            TypeKind.TABLE: "TABLE",
+            TypeKind.FUNCTION: "TABLE",  # Functions stored as table references
+            TypeKind.ANY: "TABLE",
+            TypeKind.VARIANT: "TABLE",
+            TypeKind.UNKNOWN: "TABLE",
+        }
+        return type_map.get(type_kind, "TABLE")
 
     def _generate_header_file(
         self,
