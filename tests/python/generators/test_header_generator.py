@@ -178,8 +178,8 @@ class TestGenerateGlobalFunctionDeclarations:
         decls = gen._generate_global_function_declarations(global_functions)
 
         assert len(decls) > 0, "Should generate declarations"
-        assert any("namespace lua2c {" in line for line in decls), \
-            "Should use lua2c namespace"
+        assert any("namespace l2c {" in line for line in decls), \
+            "Should use l2c namespace"
         assert any("print" in line for line in decls), \
             "Should declare print function"
 
@@ -194,8 +194,8 @@ class TestGenerateGlobalFunctionDeclarations:
 
         decls = gen._generate_global_function_declarations(global_functions)
 
-        assert any("namespace lua2c {" in line for line in decls), \
-            "Should use lua2c namespace"
+        assert any("namespace l2c {" in line for line in decls), \
+            "Should use l2c namespace"
         assert any("print" in line for line in decls), \
             "Should declare print function"
         assert any("tonumber" in line for line in decls), \
@@ -214,9 +214,9 @@ class TestGenerateGlobalFunctionDeclarations:
 
         decls = gen._generate_global_function_declarations(global_functions)
 
-        assert decls[0] == "namespace lua2c {", \
+        assert decls[0] == "namespace l2c {", \
             "First line should open namespace"
-        assert decls[-1] == "}  // namespace lua2c", \
+        assert decls[-1] == "}  // namespace l2c", \
             "Last line should close namespace with comment"
 
     def test_empty_global_functions(self):
@@ -232,9 +232,9 @@ class TestGenerateGlobalFunctionDeclarations:
 
         assert len(decls) == 2, \
             "Should return namespace opening and closing even when empty"
-        assert decls[0] == "namespace lua2c {", \
+        assert decls[0] == "namespace l2c {", \
             "First line should open namespace"
-        assert decls[1] == "}  // namespace lua2c", \
+        assert decls[1] == "}  // namespace l2c", \
             "Last line should close namespace"
 
     def test_unknown_global_function_comment(self):
@@ -282,8 +282,8 @@ class TestGenerateGlobalFunctionDeclarations:
 
         decls = gen._generate_global_function_declarations(global_functions)
 
-        assert any("namespace lua2c {" in line for line in decls), \
-            "Should use lua2c namespace"
+        assert any("namespace l2c {" in line for line in decls), \
+            "Should use l2c namespace"
         assert any("print" in line and "print" not in "//" for line in decls), \
             "Should declare print function (not as comment)"
         assert any("tonumber" in line and "tonumber" not in "//" for line in decls), \
@@ -334,8 +334,8 @@ class TestGenerateHeader:
             "Header should define struct io"
         assert "struct math {" in header, \
             "Header should define struct math"
-        assert "namespace lua2c {" in header, \
-            "Header should have lua2c namespace"
+        assert "namespace l2c {" in header, \
+            "Header should have l2c namespace"
         assert "print" in header, \
             "Header should declare print function"
 
@@ -354,8 +354,8 @@ class TestGenerateHeader:
 
         assert "#pragma once" in header, \
             "Header should have pragma once"
-        assert "namespace lua2c {" in header, \
-            "Header should have empty namespace lua2c"
+        assert "namespace l2c {" in header, \
+            "Header should have empty namespace l2c"
 
     def test_header_only_library_calls_no_global(self):
         """Test header with library calls but no global functions
@@ -374,8 +374,8 @@ class TestGenerateHeader:
             "Header should have pragma once"
         assert "struct io {" in header, \
             "Header should define struct io"
-        assert "namespace lua2c {" in header, \
-            "Header should have empty namespace lua2c"
+        assert "namespace l2c {" in header, \
+            "Header should have empty namespace l2c"
 
     def test_header_only_global_functions_no_library(self):
         """Test header with global functions but no library calls
@@ -393,8 +393,8 @@ class TestGenerateHeader:
 
         assert "#pragma once" in header, \
             "Header should have pragma once"
-        assert "namespace lua2c {" in header, \
-            "Header should have lua2c namespace"
+        assert "namespace l2c {" in header, \
+            "Header should have l2c namespace"
 
     def test_header_formatting_blank_lines(self):
         """Test that header has proper blank line formatting
