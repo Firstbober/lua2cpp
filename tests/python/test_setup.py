@@ -10,26 +10,26 @@ else:
 class TestProjectStructure:
 
     def test_directories_exist(self):
-        project_root = Path(__file__).parent.parent
+        project_root = Path(__file__).parent.parent.parent  # Go up to project root
 
         required_dirs = [
-            project_root / "lua2cpp" / "core",
-            project_root / "lua2cpp" / "analyzers",
+            project_root / "lua2cpp" / "lua2cpp" / "core",
+            project_root / "lua2cpp" / "lua2cpp" / "analyzers",
             project_root / "tests",
-            project_root / "tests" / "integration",
+            project_root / "tests" / "python",
         ]
 
         for directory in required_dirs:
             assert directory.is_dir(), f"Required directory {directory} does not exist"
 
     def test_package_structure(self):
-        project_root = Path(__file__).parent.parent
-        init_file = project_root / "lua2cpp" / "__init__.py"
+        project_root = Path(__file__).parent.parent.parent  # Go up to project root
+        init_file = project_root / "lua2cpp" / "lua2cpp" / "__init__.py"
 
         assert init_file.is_file(), f"Package __init__.py at {init_file} does not exist"
 
     def test_pyproject_toml_valid(self):
-        project_root = Path(__file__).parent.parent
+        project_root = Path(__file__).parent.parent.parent  # Go up to project root
         pyproject_path = project_root / "pyproject.toml"
 
         assert pyproject_path.is_file(), f"pyproject.toml at {pyproject_path} does not exist"
