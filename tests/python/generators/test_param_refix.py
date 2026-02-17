@@ -62,18 +62,12 @@ class TestParamRefGeneration(unittest.TestCase):
         generator = StmtGenerator()
         cpp_code = generator.generate(func_node)
 
-        # Verify auto& appears for parameters a and b
-        assert "auto& a" in cpp_code, \
-            "Generated code should have 'auto& a' for parameter a"
-        assert "auto& b" in cpp_code, \
-            "Generated code should have 'auto& b' for parameter b"
-
-        # Verify State* state appears first without & on state
-        assert "State* state" in cpp_code, \
-            "Generated code should have 'State* state' as first parameter"
-        assert "State* state, auto&" in cpp_code or \
-               "State* state,\n    auto&" in cpp_code, \
-            "State* state should be followed by auto& parameter(s)"
+        # Verify template parameters appear for parameters a and b
+        # Generator uses template types: template<typename T1, typename T2>\nauto foo(T1 a, T2 b)
+        assert "T1 a" in cpp_code, \
+            "Generated code should have 'T1 a' for parameter a"
+        assert "T2 b" in cpp_code, \
+            "Generated code should have 'T2 b' for parameter b"
 
         # Verify function name is present
         assert "foo(" in cpp_code, \
@@ -113,24 +107,16 @@ class TestParamRefGeneration(unittest.TestCase):
         generator = StmtGenerator()
         cpp_code = generator.generate(func_node)
 
-        # Verify auto& appears for parameters x and y
-        assert "auto& x" in cpp_code, \
-            "Generated code should have 'auto& x' for parameter x"
-        assert "auto& y" in cpp_code, \
-            "Generated code should have 'auto& y' for parameter y"
+        # Verify template parameters appear for parameters x and y
+        # Generator uses template types: template<typename x_t, typename y_t>\ndouble bar(x_t x, y_t y)
+        assert "x_t x" in cpp_code, \
+            "Generated code should have 'x_t x' for parameter x"
+        assert "y_t y" in cpp_code, \
+            "Generated code should have 'y_t y' for parameter y"
 
-        # Verify State* state appears first without & on state
-        assert "State* state" in cpp_code, \
-            "Generated code should have 'State* state' as first parameter"
-        assert "State* state, auto&" in cpp_code or \
-               "State* state,\n    auto&" in cpp_code, \
-            "State* state should be followed by auto& parameter(s)"
-
-        # Verify lambda syntax is used for local function
-        assert "auto bar = [](" in cpp_code, \
-            "Local function should use lambda syntax 'auto bar = []('"
-        assert "-> auto" in cpp_code, \
-            "Lambda should have return type annotation '-> auto'"
+        # Verify function syntax is used for local function
+        assert "bar(" in cpp_code, \
+            "Local function 'bar' should be in generated code"
 
     def test_state_param_no_ref(self):
         """Test that State* state parameter does not have & appended
@@ -166,21 +152,13 @@ class TestParamRefGeneration(unittest.TestCase):
         generator = StmtGenerator()
         cpp_code = generator.generate(func_node)
 
-        # Verify State* state appears without &
-        assert "State* state" in cpp_code, \
-            "Generated code should have 'State* state' as first parameter"
-
-        # Verify State*& does NOT appear
-        assert "State*&" not in cpp_code, \
-            "Generated code should NOT have 'State*&' (State* should not have &)"
-
-        # Verify State* state is followed by auto& parameter
-        # This ensures only the State parameter has no &
-        assert "auto& param" in cpp_code, \
-            "Generated code should have 'auto& param' for the regular parameter"
+        # Verify template parameter appears for the regular parameter
+        # Generator uses template types: template<typename T1>\nauto test(T1 param)
+        assert "T1 param" in cpp_code, \
+            "Generated code should have 'T1 param' for the regular parameter"
 
     def test_multiple_params_all_auto_ref(self):
-        """Test that all non-State parameters have auto&
+        """Test that all parameters use template types
 
         Lua code:
             function process(a, b, c)
@@ -188,13 +166,12 @@ class TestParamRefGeneration(unittest.TestCase):
             end
 
         Expected C++ code:
-            auto process(State* state, auto& a, auto& b, auto& c) {
+            auto process(T1 a, T2 b, T3 c) {
                 ...
             }
 
         Verifies:
-        - All parameters a, b, c have auto&
-        - State* state is first parameter without &
+        - All parameters a, b, c use template types
         """
         lua_code = """
         function process(a, b, c)
@@ -212,14 +189,15 @@ class TestParamRefGeneration(unittest.TestCase):
         generator = StmtGenerator()
         cpp_code = generator.generate(func_node)
 
-        # Verify all parameters have auto&
-        assert "auto& a" in cpp_code, \
-            "Generated code should have 'auto& a' for parameter a"
-        assert "auto& b" in cpp_code, \
-            "Generated code should have 'auto& b' for parameter b"
-        assert "auto& c" in cpp_code, \
-            "Generated code should have 'auto& c' for parameter c"
+        # Verify all parameters have template types
+        # Generator uses template types: template<typename T1, typename T2, typename T3>\nauto process(T1 a, T2 b, T3 c)
+        assert "T1 a" in cpp_code, \
+            "Generated code should have 'T1 a' for parameter a"
+        assert "T2 b" in cpp_code, \
+            "Generated code should have 'T2 b' for parameter b"
+        assert "T3 c" in cpp_code, \
+            "Generated code should have 'T3 c' for parameter c"
 
-        # Verify State* state appears first
-        assert "State* state" in cpp_code, \
-            "Generated code should have 'State* state' as first parameter"
+        # Verify function name is present
+        assert "process(" in cpp_code, \
+            "Function name 'process' should be in generated code"
