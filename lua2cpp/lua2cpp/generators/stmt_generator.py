@@ -98,7 +98,7 @@ class StmtGenerator(ASTVisitor):
             if type_info is not None:
                 var_type = type_info.cpp_type()
             else:
-                var_type = "luaValue"
+                var_type = "auto"
 
             if init_expr is not None:
                 expr_code = self._expr_gen.generate(init_expr)
@@ -174,7 +174,7 @@ class StmtGenerator(ASTVisitor):
                 if target_code != value_code:
                     lines.append(f"{target_code} = {value_code};")
             else:
-                lines.append(f"{target_code} = luaValue();")
+                lines.append(f"{target_code} = TABLE();")
 
         if len(lines) == 1:
             return lines[0]
@@ -258,7 +258,7 @@ class StmtGenerator(ASTVisitor):
     def visit_If(self, node: astnodes.If) -> str:
         cond_code = self._expr_gen.generate(node.test)
         if_body = self._generate_block(node.body)
-        result = f"if (is_truthy({cond_code})) {if_body}"
+        result = f"if (l2c::is_truthy({cond_code})) {if_body}"
         if node.orelse and node.orelse.body:
             # Normalize orelse (could be Block or If node for elseif chains)
             orelse = node.orelse
@@ -274,7 +274,7 @@ class StmtGenerator(ASTVisitor):
     def visit_While(self, node: astnodes.While) -> str:
         cond_code = self._expr_gen.generate(node.test)
         loop_body = self._generate_block(node.body)
-        return f"while (is_truthy({cond_code})) {loop_body}"
+        return f"while (l2c::is_truthy({cond_code})) {loop_body}"
 
     def visit_Fornum(self, node: astnodes.Fornum) -> str:
         var_name = node.target.id
@@ -320,7 +320,7 @@ class StmtGenerator(ASTVisitor):
             if isinstance(arg, astnodes.Varargs):
                 continue
             template_params.append(f"T{param_idx}")
-            params.append(f"T{param_idx}& {arg.id}")
+            params.append(f"T{param_idx} {arg.id}")
             param_idx += 1
         
         template_str = ""
@@ -366,7 +366,7 @@ class StmtGenerator(ASTVisitor):
             if isinstance(arg, astnodes.Varargs):
                 continue
             template_params.append(f"{arg.id}_t")
-            params.append(f"{arg.id}_t& {arg.id}")
+            params.append(f"{arg.id}_t {arg.id}")
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()
@@ -410,7 +410,7 @@ class StmtGenerator(ASTVisitor):
     def visit_Repeat(self, node: astnodes.Repeat) -> str:
         body = self._generate_block(node.body)
         cond = self._expr_gen.generate(node.test)
-        return f"do {body} while (!is_truthy({cond}));"
+        return f"do {body} while (!l2c::is_truthy({cond}));"
 
     def visit_Forin(self, node: astnodes.Forin) -> str:
         return "// for-in loop not implemented"

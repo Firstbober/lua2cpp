@@ -165,7 +165,7 @@ class CppEmitter:
 
         # Add header comment if input_file provided
         if input_file:
-            header_comment = f"// Auto-generated from {input_file}\n// Lua2Cpp Transpiler\n#include \"l2c_runtime.hpp\""
+            header_comment = f"// Auto-generated from {input_file}\n// Lua2Cpp Transpiler"
             lines.insert(0, header_comment)
 
         return "\n".join(lines)
