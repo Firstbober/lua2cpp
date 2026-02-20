@@ -499,7 +499,7 @@ def _generate_class_implementation(class_info: ClassInfo, all_classes: Dict[str,
     return "\n".join(lines)
 
 
-    def _generate_constructor_body(class_info: ClassInfo, method: MethodInfo) -> str:
+def _generate_constructor_body(class_info: ClassInfo, method: MethodInfo) -> str:
         """Generate constructor implementation body (parent init in body, no initializer list)"""
         lines = []
 
@@ -518,8 +518,8 @@ def _generate_class_implementation(class_info: ClassInfo, all_classes: Dict[str,
         if method.body and hasattr(method.body, 'body'):
             body_stmts = method.body.body if isinstance(method.body.body, list) else [method.body.body]
             for stmt in body_stmts:
-                # Translate statement with self -> this
-                code = _translate_statement(stmt)
+                # Translate statement with self -> this and parent init support
+                code = _translate_statement(stmt, parent_class=class_info.parent)
                 if code:
                     lines.append(f"    {code}")
 
@@ -543,7 +543,7 @@ def _generate_method_body(class_info: ClassInfo, method: MethodInfo) -> str:
     if method.body and hasattr(method.body, 'body'):
         body_stmts = method.body.body if isinstance(method.body.body, list) else [method.body.body]
         for stmt in body_stmts:
-            code = _translate_statement(stmt)
+            code = _translate_statement(stmt, parent_class=class_info.parent)
             if code:
                 lines.append(f"    {code}")
     
@@ -552,12 +552,44 @@ def _generate_method_body(class_info: ClassInfo, method: MethodInfo) -> str:
     return "\n".join(lines)
 
 
-def _translate_statement(stmt: Any) -> Optional[str]:
-    """Translate a single statement to C++"""
+def _is_parent_init_call(stmt: Any, parent_class: str) -> bool:
+    """Check if statement is ParentClass.init(self, ...) call"""
+    if not isinstance(stmt, astnodes.Call):
+        return False
+    if not isinstance(stmt.func, astnodes.Index):
+        return False
+    if (isinstance(stmt.func.value, astnodes.Name) and
+        isinstance(stmt.func.idx, astnodes.Name) and
+        stmt.func.idx.id == "init"):
+        return stmt.func.value.id == parent_class
+    return False
+
+
+def _translate_statement(stmt: Any, parent_class: Optional[str] = None) -> Optional[str]:
+    """Translate a single statement to C++
+    
+    Args:
+        stmt: AST statement to translate
+        parent_class: Parent class name to check for init call
+    
+    Returns:
+        Translated C++ code or None if not a statement
+    """
     if not hasattr(stmt, '__class__'):
         return None
     
     class_name = stmt.__class__.__name__
+    
+    if class_name == 'Call':
+        if parent_class and _is_parent_init_call(stmt, parent_class):
+            func = stmt.func
+            args_translated = []
+            for arg in stmt.args[1:]:
+                arg_translated = _translate_expression(arg)
+                if arg_translated:
+                    args_translated.append(arg_translated)
+            parent_name = func.value.id
+            return f"{parent_name}::init(this, {', '.join(args_translated)})"
     
     if class_name == 'Assignment':
         var = stmt.var
@@ -570,7 +602,9 @@ def _translate_statement(stmt: Any) -> Optional[str]:
         func = stmt.func
         args = []
         for arg in stmt.args:
-            args.append(_translate_expression(arg))
+            arg_translated = _translate_expression(arg)
+            if arg_translated:
+                args.append(arg_translated)
         func_str = _translate_expression(func)
         return f"{func_str}({', '.join(args)})"
     
@@ -584,13 +618,44 @@ def _translate_statement(stmt: Any) -> Optional[str]:
                 if code:
                     lines.append(f"    {code}")
         lines.append("}")
-        if hasattr(stmt, 'orelse') and stmt.orelse and hasattr(stmt.orelse, 'body'):
-            lines.append("else {{")
-            for sub_stmt in stmt.orelse.body:
+        if hasattr(stmt, 'orelse') and stmt.orelse:
+            orelse_type = type(stmt.orelse).__name__
+            if orelse_type == 'ElseIf':
+                code = _translate_statement(stmt.orelse)
+                if code:
+                    lines.append(code)
+            elif hasattr(stmt.orelse, 'body'):
+                lines.append("else {")
+                for sub_stmt in stmt.orelse.body:
+                    code = _translate_statement(sub_stmt)
+                    if code:
+                        lines.append(f"    {code}")
+                lines.append("}")
+        return "\n".join(lines)
+    
+    elif class_name == 'ElseIf':
+        test = _translate_expression(stmt.test)
+        lines = []
+        lines.append(f"else if ({test}) {{")
+        if hasattr(stmt, 'body') and stmt.body and hasattr(stmt.body, 'body'):
+            for sub_stmt in stmt.body.body:
                 code = _translate_statement(sub_stmt)
                 if code:
                     lines.append(f"    {code}")
-            lines.append("}")
+        lines.append("}")
+        if hasattr(stmt, 'orelse') and stmt.orelse:
+            orelse_type = type(stmt.orelse).__name__
+            if orelse_type == 'ElseIf':
+                code = _translate_statement(stmt.orelse)
+                if code:
+                    lines.append(code)
+            elif hasattr(stmt.orelse, 'body'):
+                lines.append("else {")
+                for sub_stmt in stmt.orelse.body:
+                    code = _translate_statement(sub_stmt)
+                    if code:
+                        lines.append(f"    {code}")
+                lines.append("}")
         return "\n".join(lines)
     
     elif class_name == 'While':
@@ -615,8 +680,12 @@ def _translate_statement(stmt: Any) -> Optional[str]:
         return "\n".join(lines)
     
     elif class_name == 'Return':
-        val = _translate_expression(stmt.val)
-        return f"return {val}"
+        if hasattr(stmt, 'values') and stmt.values:
+            vals = [_translate_expression(v) for v in stmt.values]
+            vals = [v for v in vals if v]
+            if vals:
+                return f"return {', '.join(vals)}"
+        return "return"
     
     elif class_name == 'Index':
         base = _translate_expression(stmt.value)
