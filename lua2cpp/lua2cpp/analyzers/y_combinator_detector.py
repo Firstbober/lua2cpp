@@ -5,7 +5,7 @@ Detects self-application patterns that cannot be compiled in C++17.
 
 from dataclasses import dataclass
 from typing import List
-from .core.ast_visitor import ASTVisitor
+from ..core.ast_visitor import ASTVisitor
 
 try:
     from luaparser import astnodes

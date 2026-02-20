@@ -172,25 +172,8 @@ class ClassDetector(ASTVisitor):
                 result = self._find_parent_init_call(stmt, parent_class)
                 if result:
                     return result
-                    
+                     
         return None
-
-
-def _is_parent_init_call(stmt: Any, parent_class: str) -> bool:
-    """Check if statement is ParentClass.init(self, ...) call"""
-    if not isinstance(stmt, astnodes.Call):
-        return False
-
-    call = stmt
-    if not isinstance(call.func, astnodes.Index):
-        return False
-
-    if (isinstance(call.func.value, astnodes.Name) and
-        isinstance(call.func.idx, astnodes.Name) and
-        call.func.idx.id == "init"):
-        return call.func.value.id == parent_class
-
-    return False
 
 
 class ClassGenerator:
@@ -316,26 +299,22 @@ class ClassGenerator:
         return "\n".join(lines)
     
     def _translate_constructor_body(self, body: astnodes.Block, parent_class: str) -> List[str]:
-        """Translate constructor body, skipping parent init call"""
+        """Translate constructor body, including parent init call"""
         lines = []
-        
+
         if not body or not hasattr(body, 'body'):
             return lines
-            
+
         stmts = body.body if isinstance(body.body, list) else [body.body]
-        
+
         for stmt in stmts:
-            # Skip the Parent.init(self, ...) call - it's in the init list
-            if self._is_parent_init_call(stmt, parent_class):
-                continue
-            
             if self._stmt_gen:
                 code = self._stmt_gen.generate(stmt)
                 if code:
                     # Translate self -> this
                     code = self._translate_self_to_this(code)
                     lines.append(code)
-        
+
         return lines
     
     def _translate_body(self, body: astnodes.Block) -> List[str]:
@@ -356,22 +335,6 @@ class ClassGenerator:
                     lines.append(code)
         
         return lines
-    
-    def _is_parent_init_call(self, stmt: Any, parent_class: str) -> bool:
-        """Check if statement is ParentClass.init(self, ...) call"""
-        if not isinstance(stmt, astnodes.Call):
-            return False
-            
-        call = stmt
-        if not isinstance(call.func, astnodes.Index):
-            return False
-            
-        if (isinstance(call.func.value, astnodes.Name) and
-            isinstance(call.func.idx, astnodes.Name) and
-            call.func.idx.id == "init"):
-            return call.func.value.id == parent_class
-            
-        return False
     
     def _translate_self_to_this(self, code: str) -> str:
         """Replace self. with this-> in generated code"""
@@ -536,53 +499,33 @@ def _generate_class_implementation(class_info: ClassInfo, all_classes: Dict[str,
     return "\n".join(lines)
 
 
-def _is_parent_init_call(stmt: Any, parent_class: str) -> bool:
-    """Check if statement is ParentClass.init(self, ...) call (standalone version)"""
-    if not isinstance(stmt, astnodes.Call):
-        return False
-    
-    call = stmt
-    if not isinstance(call.func, astnodes.Index):
-        return False
-    
-    if (isinstance(call.func.value, astnodes.Name) and
-        isinstance(call.func.idx, astnodes.Name) and
-        call.func.idx.id == "init"):
-        return call.func.value.id == parent_class
-    
-    return False
+    def _generate_constructor_body(class_info: ClassInfo, method: MethodInfo) -> str:
+        """Generate constructor implementation body (parent init in body, no initializer list)"""
+        lines = []
 
+        # Build parameter list (skip 'self' parameter)
+        params = [p for p in method.params if p != "self"]
+        param_strs = [f"auto {p}" for p in params]
+        params_str = ", ".join(param_strs) if param_strs else ""
 
-def _generate_constructor_body(class_info: ClassInfo, method: MethodInfo) -> str:
-    """Generate constructor implementation body (no initializer list for parent)"""
-    lines = []
-    
-    # Build parameter list (skip 'self' parameter)
-    params = [p for p in method.params if p != "self"]
-    param_strs = [f"auto {p}" for p in params]
-    params_str = ", ".join(param_strs) if param_strs else ""
-    
-    lines.append(f"{class_info.name}::{class_info.name}({params_str}) {{")
-    
-    # Call parent init if parent is Object (the base class)
-    if class_info.parent == "Object":
-        lines.append("    Object::init(this);")
-    
-    # Translate body (skip parent init call which goes in init list)
-    if method.body and hasattr(method.body, 'body'):
-        body_stmts = method.body.body if isinstance(method.body.body, list) else [method.body.body]
-        for stmt in body_stmts:
-            # Skip the Parent.init(self, ...) call - it's in the init list
-            if isinstance(stmt, astnodes.Call) and _is_parent_init_call(stmt, class_info.parent):
-                continue
-            # Translate statement with self -> this
-            code = _translate_statement(stmt)
-            if code:
-                lines.append(f"    {code}")
-    
-    lines.append("}")
-    
-    return "\n".join(lines)
+        lines.append(f"{class_info.name}::{class_info.name}({params_str}) {{")
+
+        # Call parent init if parent is Object (the base class)
+        if class_info.parent == "Object":
+            lines.append("    Object::init(this);")
+
+        # Translate body (include parent init call)
+        if method.body and hasattr(method.body, 'body'):
+            body_stmts = method.body.body if isinstance(method.body.body, list) else [method.body.body]
+            for stmt in body_stmts:
+                # Translate statement with self -> this
+                code = _translate_statement(stmt)
+                if code:
+                    lines.append(f"    {code}")
+
+        lines.append("}")
+
+        return "\n".join(lines)
 
 
 def _generate_method_body(class_info: ClassInfo, method: MethodInfo) -> str:
@@ -632,18 +575,18 @@ def _translate_statement(stmt: Any) -> Optional[str]:
         return f"{func_str}({', '.join(args)})"
     
     elif class_name == 'If':
-        cond = _translate_expression(stmt.cond)
+        test = _translate_expression(stmt.test)
         lines = []
-        lines.append(f"if ({cond}) {{")
-        if hasattr(stmt, 'then_block') and stmt.then_block:
-            for sub_stmt in stmt.then_block:
+        lines.append(f"if ({test}) {{")
+        if hasattr(stmt, 'body') and stmt.body and hasattr(stmt.body, 'body'):
+            for sub_stmt in stmt.body.body:
                 code = _translate_statement(sub_stmt)
                 if code:
                     lines.append(f"    {code}")
         lines.append("}")
-        if hasattr(stmt, 'else_block') and stmt.else_block:
+        if hasattr(stmt, 'orelse') and stmt.orelse and hasattr(stmt.orelse, 'body'):
             lines.append("else {{")
-            for sub_stmt in stmt.else_block:
+            for sub_stmt in stmt.orelse.body:
                 code = _translate_statement(sub_stmt)
                 if code:
                     lines.append(f"    {code}")
@@ -651,11 +594,11 @@ def _translate_statement(stmt: Any) -> Optional[str]:
         return "\n".join(lines)
     
     elif class_name == 'While':
-        cond = _translate_expression(stmt.cond)
+        test = _translate_expression(stmt.test)
         lines = []
-        lines.append(f"while ({cond}) {{")
-        if hasattr(stmt, 'body') and stmt.body:
-            for sub_stmt in stmt.body:
+        lines.append(f"while ({test}) {{")
+        if hasattr(stmt, 'body') and stmt.body and hasattr(stmt.body, 'body'):
+            for sub_stmt in stmt.body.body:
                 code = _translate_statement(sub_stmt)
                 if code:
                     lines.append(f"    {code}")

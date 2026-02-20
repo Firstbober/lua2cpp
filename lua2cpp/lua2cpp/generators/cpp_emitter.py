@@ -21,8 +21,8 @@ except ImportError:
 from ..core.scope import ScopeManager
 from ..core.symbol_table import SymbolTable
 from ..core.types import Type, TypeKind, ASTAnnotationStore
-from .analyzers.function_registry import FunctionSignatureRegistry
-from .analyzers.type_resolver import TypeResolver
+from ..analyzers.function_registry import FunctionSignatureRegistry
+from ..analyzers.type_resolver import TypeResolver
 from .expr_generator import ExprGenerator
 from .stmt_generator import StmtGenerator
 from ..core.library_call_collector import LibraryCallCollector

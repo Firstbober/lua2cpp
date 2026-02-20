@@ -19,9 +19,9 @@ Design Principles:
 from typing import Dict, Optional
 from luaparser import astnodes
 
-from .core.scope import ScopeManager
-from .core.symbol_table import SymbolTable
-from .core.types import Type, TypeKind, ASTAnnotationStore
+from ..core.scope import ScopeManager
+from ..core.symbol_table import SymbolTable
+from ..core.types import Type, TypeKind, ASTAnnotationStore
 
 
 class TypeResolver:
@@ -138,7 +138,7 @@ class TypeResolver:
             True if any changes were made, False otherwise
         """
         changed = False
-        from .core.types import TableTypeInfo
+        from ..core.types import TableTypeInfo
 
         for func_name, signature in self.function_registry.signatures.items():
             for call_site in signature.call_sites:

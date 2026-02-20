@@ -15,12 +15,12 @@ from typing import Dict, List, Optional
 
 if __name__.startswith('lua2cpp.analyzers'):
     # When imported from within lua2cpp package
-    from .core.types import Type, TableTypeInfo
+    from ..core.types import Type, TableTypeInfo
 else:
     # For TYPE_CHECKING and external imports
     from typing import TYPE_CHECKING
     if TYPE_CHECKING:
-        from .core.types import Type, TableTypeInfo
+        from ..core.types import Type, TableTypeInfo
 
 
 @dataclass
@@ -132,7 +132,7 @@ class FunctionSignatureRegistry:
         registry.register_function("foo", ["x", "y"], is_local=True)
 
         # Update parameter type info
-        from .core.types import TableTypeInfo, Type, TypeKind
+        from ..core.types import TableTypeInfo, Type, TypeKind
         table_info = TableTypeInfo(is_array=True, value_type=Type(TypeKind.NUMBER))
         registry.update_param_table_info("foo", 0, table_info)
 
