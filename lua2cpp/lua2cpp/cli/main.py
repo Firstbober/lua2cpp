@@ -16,9 +16,9 @@ except ImportError:
 
 from lua2cpp.generators import CppEmitter
 from lua2cpp.generators.header_generator import HeaderGenerator
-from .core.library_call_collector import LibraryCallCollector, LibraryCallCollector as Collector
-from .analyzers.y_combinator_detector import YCombinatorDetector
-from .core.call_convention import CallConventionRegistry
+from ..core.library_call_collector import LibraryCallCollector, LibraryCallCollector as Collector
+from ..analyzers.y_combinator_detector import YCombinatorDetector
+from ..core.call_convention import CallConventionRegistry
 
 
 def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False, convention_registry: Optional[CallConventionRegistry] = None) -> Tuple[str, List, Optional[Collector], Any]:
