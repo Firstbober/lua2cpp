@@ -5,9 +5,11 @@ __pycache__/
 .venv
 .sisyphus
 output
-# Additional cleanup entries
 venv/
 tests/cpp/build/
+tests/cpp/generated/
 htmlcov/
 .pytest_cache/
 .mypy_cache/
+benchmarks/build/
+benchmarks/cpp/
