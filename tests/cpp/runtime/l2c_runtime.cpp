@@ -1,11 +1,13 @@
 #include "l2c_runtime_v2.hpp"
+#include <cstdlib>
+#include <ctime>
 
 namespace l2c {
-    void print(const TABLE& value) {
+    void print_single(const TABLE& value) {
         if (value.str.empty()) {
-            std::cout << value.num << std::endl;
+            std::cout << value.num;
         } else {
-            std::cout << value.str << std::endl;
+            std::cout << value.str;
         }
     }
 
@@ -35,7 +37,7 @@ namespace l2c {
         return result;
     }
 
-    TABLE string_format(const std::string& fmt, const TABLE& value) {
+    TABLE string_format_single(const std::string& fmt, const TABLE& value) {
         TABLE result;
         char buffer[256];
         
@@ -62,11 +64,18 @@ namespace l2c {
         return std::sqrt(value.num);
     }
 
-    void io_write(const TABLE& value) {
+    void io_write_single(const TABLE& value) {
         if (value.str.empty()) {
             std::cout << value.num;
         } else {
             std::cout << value.str;
         }
+    }
+    
+    NUMBER math_random(NUMBER min, NUMBER max) {
+        static bool seeded = false;
+        if (!seeded) { std::srand(static_cast<unsigned>(std::time(nullptr))); seeded = true; }
+        NUMBER scale = static_cast<NUMBER>(std::rand()) / RAND_MAX;
+        return min + scale * (max - min);
     }
 }
