@@ -13,3 +13,5 @@ htmlcov/
 .mypy_cache/
 benchmarks/build/
 benchmarks/cpp/
+benchmarks/spectral_norm_O*
+benchmarks/spectral_norm_standalone
