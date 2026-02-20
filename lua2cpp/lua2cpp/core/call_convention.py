@@ -58,6 +58,8 @@ class CallConventionRegistry:
         
         # l2c runtime
         self.register('l2c', CallConvention.NAMESPACE, cpp_namespace='l2c')
+        
+        self.register('love', CallConvention.NAMESPACE, cpp_namespace='love')
     
     def register(self, module: str, convention: CallConvention, 
                  cpp_prefix: str = "", cpp_namespace: str = "", 

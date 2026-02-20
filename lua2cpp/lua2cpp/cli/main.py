@@ -5,7 +5,7 @@ import argparse
 import re
 import traceback
 from pathlib import Path
-from typing import List, Set, Optional, Dict, Tuple
+from typing import List, Set, Optional, Dict, Tuple, Any
 
 try:
     from luaparser import ast
@@ -21,7 +21,7 @@ from lua2cpp.analyzers.y_combinator_detector import YCombinatorDetector
 from lua2cpp.core.call_convention import CallConventionRegistry
 
 
-def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False, convention_registry: Optional[CallConventionRegistry] = None) -> Tuple[str, List, Optional[Collector]]:
+def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False, convention_registry: Optional[CallConventionRegistry] = None) -> Tuple[str, List, Optional[Collector], Any]:
     """Transpile a single Lua file to C++
 
     Args:
@@ -32,7 +32,7 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
         convention_registry: Optional registry for call conventions
 
     Returns:
-        Tuple of (generated C++ code, list of LibraryCall objects if collect_library_calls=True else [])
+        Tuple of (generated C++ code, list of LibraryCall objects if collect_library_calls=True else [], emitter)
 
     Raises:
         FileNotFoundError: If input_file doesn't exist
@@ -81,10 +81,10 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
         for w in y_warnings:
             warning_block += f"//   Line {w.line_start}: {w.source_snippet.strip() if w.source_snippet else '(unknown)'}\n"
         warning_block += "// These patterns use self-application (f(f)) which creates circular type dependencies.\n"
-        warning_block += "// Consider rewriting using explicit recursion or std::function wrappers.\n"
+        "// Consider rewriting using explicit recursion or std::function wrappers.\n"
         cpp_code = warning_block + cpp_code
 
-    return cpp_code, library_calls, collector
+    return cpp_code, library_calls, collector, emitter
 
 
 def extract_function_signatures(cpp_code: str) -> List[str]:
@@ -129,12 +129,13 @@ def extract_function_signatures(cpp_code: str) -> List[str]:
     return signatures
 
 
-def generate_lib_header(cpp_code: str, module_name: str) -> str:
+def generate_lib_header(cpp_code: str, module_name: str, has_g_table: bool = False) -> str:
     """Generate .hpp header file with forward declarations.
 
     Args:
         cpp_code: Generated C++ source code
         module_name: Name of the module (input filename stem)
+        has_g_table: Whether this module uses the G table
 
     Returns:
         Header file content with forward declarations
@@ -147,10 +148,17 @@ def generate_lib_header(cpp_code: str, module_name: str) -> str:
         '',
         '#pragma once',
         '',
+        '#include "../runtime/globals.hpp"',
+        '',
     ]
 
     for sig in signatures:
         header_lines.append(f'{sig};')
+
+    # Add extern TABLE G; declaration if G is used
+    if has_g_table:
+        header_lines.append('')
+        header_lines.append('extern TABLE G;')
 
     header_lines.append('')
 
@@ -159,6 +167,7 @@ def generate_lib_header(cpp_code: str, module_name: str) -> str:
 
 def main():
     """Main entry point for the CLI."""
+    emitter = None
     parser = argparse.ArgumentParser(
         description="Transpile Lua 5.4 source code to C++"
     )
@@ -227,12 +236,12 @@ def main():
     # Load from CLI arguments
     if args.convention:
         convention_registry.load_from_cli(args.convention)
-    
+
     try:
-        cpp_code, library_calls, collector = transpile_file(
-            args.input, 
-            collect_library_calls=args.header, 
-            output_dir=args.output_dir, 
+        cpp_code, library_calls, collector, emitter = transpile_file(
+            args.input,
+            collect_library_calls=args.header,
+            output_dir=args.output_dir,
             verbose=args.verbose,
             convention_registry=convention_registry
         )
@@ -273,7 +282,7 @@ def main():
 
     if args.lib:
         try:
-            hpp_content = generate_lib_header(cpp_code, args.input.stem)
+            hpp_content = generate_lib_header(cpp_code, args.input.stem, emitter._has_g_table)
             hpp_file = output_file.parent / f"{args.input.stem}.hpp"
             with open(hpp_file, 'w', encoding='utf-8') as f:
                 f.write(hpp_content)
@@ -282,6 +291,9 @@ def main():
             print(f"Error generating library header file: {e}", file=sys.stderr)
             traceback.print_exc()
             sys.exit(1)
+
+    # Restore original return value for back-compatibility
+    return cpp_code, library_calls, collector
 
     if args.header:
         try:
