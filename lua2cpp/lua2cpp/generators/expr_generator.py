@@ -392,6 +392,53 @@ class ExprGenerator(ASTVisitor):
         args_str = ", ".join(args) if args else ""
         return f"l2c::{func_name}({args_str})"
 
+    def _generate_g_table_access(self, node: astnodes.Index) -> str:
+        """Generate C++ code for G table access using bracket notation
+
+        G table access uses bracket notation for all levels:
+        - G.C.HAND_LEVELS[0] → G["C"]["HAND_LEVELS"][0]
+        - G["key"] → G["key"]
+        - G.key → G["key"] (both work uniformly)
+
+        Args:
+            node: Index AST node
+
+        Returns:
+            str: Generated C++ code with bracket notation
+        """
+        parts = []
+        current = node
+
+        while current is not None:
+            if isinstance(current.value, astnodes.Name):
+                if current.value.id == "G" and isinstance(current.idx, astnodes.Name):
+                    parts.append(f'"{current.idx.id}"')
+                elif isinstance(current.idx, astnodes.Name):
+                    parts.append(f'"{current.idx.id}"')
+                elif isinstance(current.idx, astnodes.Number):
+                    parts.append(f"{current.idx.n}")
+                elif isinstance(current.idx, astnodes.String):
+                    idx_content = current.idx.s.decode() if isinstance(current.idx.s, bytes) else current.idx.s
+                    idx_content = idx_content.replace('\\', '\\\\').replace('"', '\\"')
+                    parts.append(f'"{idx_content}"')
+                else:
+                    parts.append(self.generate(current.idx))
+            else:
+                parts.append(self.generate(current.idx))
+
+            if hasattr(current, 'value') and isinstance(current.value, astnodes.Index):
+                current = current.value
+            else:
+                break
+
+        parts.reverse()
+        if len(parts) == 1:
+            return 'G' + parts[0]  # G[0] or G["key"]
+        else:
+            return 'G' + '["' + '"]["'.join(parts[:-1]) + f'"]{parts[-1]}'
+
+
+
     def visit_Index(self, node: astnodes.Index) -> str:
         """Generate C++ index expression
 
@@ -401,12 +448,18 @@ class ExprGenerator(ASTVisitor):
         - FLAT_NESTED: X_Y_Z() for flattened nested paths
         - TABLE: X["Y"] for dynamic table access
 
+        Special handling for G table: uses bracket notation G["x"] for all access patterns
+
         Args:
             node: Index AST node with value and idx
 
         Returns:
             str: Generated C++ code
         """
+        # Check if this is a G table access
+        if isinstance(node.value, astnodes.Name) and node.value.id == "G":
+            return self._generate_g_table_access(node)
+
         # Get root module and its convention
         root_module = get_root_module(node)
         config = self._convention_registry.get_config(root_module)

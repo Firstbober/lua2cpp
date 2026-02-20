@@ -73,6 +73,51 @@ class CppEmitter:
         # Track whether 'arg' variable is referenced in Lua code
         self._has_arg: bool = False
 
+        # Track whether 'G' table is used (for extern TABLE G;)
+        self._has_g_table: bool = False
+
+        # Track whether 'love.*' API is used
+        self._has_love: bool = False
+
+        # Module dependency tracking
+        # Maps known export symbol names to their module info
+        # Format: {symbol_name: (module_path, cpp_var_name)}
+        self._module_export_map = {
+            # engine/object exports
+            "Object": ("engine/object", "object_Object"),
+            # engine/node exports
+            "Node": ("engine/node", "node_Node"),
+            # engine/moveable exports
+            "Moveable": ("engine/moveable", "moveable_Moveable"),
+            # engine/sprite exports
+            "Sprite": ("engine/sprite", "sprite_Sprite"),
+            # game exports
+            "Game": ("game", "game_Game"),
+            # card exports
+            "Card": ("card", "card_Card"),
+            # cardarea exports
+            "CardArea": ("cardarea", "cardarea_CardArea"),
+            # blind exports
+            "Blind": ("blind", "blind_Blind"),
+            # tag exports
+            "Tag": ("tag", "tag_Tag"),
+            # back exports
+            "Back": ("back", "back_Back"),
+            # engine/event exports
+            "Event": ("engine/event", "event_Event"),
+            # engine/animatedsprite exports
+            "AnimatedSprite": ("engine/animatedsprite", "animatedsprite_AnimatedSprite"),
+            # engine/ui exports
+            "UI": ("engine/ui", "ui_UI"),
+            # engine/text exports
+            "Text": ("engine/text", "text_Text"),
+            # engine/particles exports
+            "Particles": ("engine/particles", "particles_Particles"),
+        }
+        # Track detected module dependencies
+        self._module_deps: Set[str] = set()  # Set of module paths
+        self._module_externs: Set[str] = set()  # Set of extern variable names
+
         # Track module-level state variables (locals + implicit globals)
         self._module_state: set[str] = set()
 
@@ -117,6 +162,11 @@ class CppEmitter:
             self.function_registry
         )
         self._type_resolver.resolve_chunk(chunk)
+
+        # Detect optional dependencies
+        self._has_g_table = self._detect_g_table_usage(chunk)
+        self._has_love = self._detect_love_usage(chunk)
+        self._detect_module_dependencies(chunk)
 
         # Phase 1.5: Module state (static file-scope globals)
         self._module_state = self._collect_module_state(chunk)
@@ -167,6 +217,56 @@ class CppEmitter:
         if input_file:
             header_comment = f"// Auto-generated from {input_file}\n// Lua2Cpp Transpiler"
             lines.insert(0, header_comment)
+
+        # Add includes after header comment
+        includes: List[str] = []
+        includes.append('#include "../runtime/l2c_runtime.hpp"')
+        if self._has_g_table:
+            includes.append('#include "../runtime/globals.hpp"')
+        if self._has_love:
+            includes.append('#include "../runtime/love_mock.hpp"')
+
+        for module_path in sorted(self._module_deps):
+            if input_file:
+                current_dir = input_file.parent
+                module_parts = module_path.split('/')
+                module_name = module_parts[-1]
+                if len(module_parts) > 1:
+                    module_dir = Path('/').joinpath(*module_parts)
+                    if module_dir != current_dir:
+                        try:
+                            relative_path = current_dir.relative_to(module_dir.parent)
+                            include_path = f"{relative_path.as_posix()}/{module_name}.hpp"
+                        except ValueError:
+                            include_path = f"{module_name}.hpp"
+                    else:
+                        include_path = f"{module_name}.hpp"
+                else:
+                    # Single name module
+                    if current_dir.name == module_name:
+                        include_path = f"{module_name}.hpp"
+                    elif module_name not in [p for p in current_dir.parts[:-1]]:
+                        include_path = f"../{module_name}.hpp"
+                    else:
+                        include_path = f"{module_name}.hpp"
+                includes.append(f'#include "{include_path}"')
+            else:
+                module_name = module_path.split('/')[-1]
+                includes.append(f'#include "{module_name}.hpp"')
+
+        insert_pos = 1 if input_file else 0
+        for i, inc in enumerate(includes):
+            lines.insert(insert_pos + i, inc)
+
+        extern_pos = insert_pos + len(includes)
+        if self._has_g_table or self._module_externs:
+            lines.insert(extern_pos, "")
+            if self._has_g_table:
+                lines.insert(extern_pos + 1, "extern TABLE G;")
+                extern_pos += 1
+            for cpp_var in sorted(self._module_externs):
+                lines.insert(extern_pos + 1, f"extern TABLE {cpp_var};")
+                extern_pos += 1
 
         return "\n".join(lines)
 
@@ -601,6 +701,98 @@ class CppEmitter:
         if has_explicit_arg_decl:
             return False
         return find_implicit_arg(chunk)
+
+    def _detect_love_usage(self, chunk: astnodes.Chunk) -> bool:
+        def find_love(node: astnodes.Node) -> bool:
+            if node is None:
+                return False
+
+            node_type = type(node).__name__
+
+            if node_type == "Index" and hasattr(node, 'value'):
+                value_type = type(node.value).__name__
+                if value_type == "Name" and hasattr(node.value, 'id') and node.value.id == "love":
+                    return True
+
+            if node_type == "Invoke" and hasattr(node, 'source'):
+                source_type = type(node.source).__name__
+                if source_type == "Name" and hasattr(node.source, 'id') and node.source.id == "love":
+                    return True
+
+            for attr_name in dir(node):
+                if not attr_name.startswith('_') and attr_name not in ('fields', 'key'):
+                    attr = getattr(node, attr_name, None)
+                    if attr is not None:
+                        if isinstance(attr, astnodes.Node):
+                            if find_love(attr):
+                                return True
+                        elif isinstance(attr, (list, tuple)):
+                            for item in attr:
+                                if isinstance(item, astnodes.Node):
+                                    if find_love(item):
+                                        return True
+
+            return False
+
+        return find_love(chunk)
+
+    def _detect_g_table_usage(self, chunk: astnodes.Chunk) -> bool:
+        def find_g(node: astnodes.Node) -> bool:
+            if node is None:
+                return False
+
+            node_type = type(node).__name__
+
+            if node_type == "Name" and hasattr(node, 'id') and node.id == "G":
+                return True
+
+            if node_type == "Index" and hasattr(node, 'value'):
+                value_type = type(node.value).__name__
+                if value_type == "Name" and hasattr(node.value, 'id') and node.value.id == "G":
+                    return True
+
+            for attr_name in dir(node):
+                if not attr_name.startswith('_') and attr_name not in ('fields', 'key'):
+                    attr = getattr(node, attr_name, None)
+                    if attr is not None:
+                        if isinstance(attr, astnodes.Node):
+                            if find_g(attr):
+                                return True
+                        elif isinstance(attr, (list, tuple)):
+                            for item in attr:
+                                if isinstance(item, astnodes.Node):
+                                    if find_g(item):
+                                        return True
+
+            return False
+
+        return find_g(chunk)
+
+    def _detect_module_dependencies(self, chunk: astnodes.Chunk) -> None:
+        def find_deps(node: astnodes.Node) -> None:
+            if node is None:
+                return
+
+            node_type = type(node).__name__
+
+            if node_type == "Name" and hasattr(node, 'id'):
+                if node.id in self._module_export_map:
+                    module_path, cpp_var = self._module_export_map[node.id]
+                    self._module_deps.add(module_path)
+                    self._module_externs.add(cpp_var)
+
+            for attr_name in dir(node):
+                if not attr_name.startswith('_') and attr_name not in ('fields', 'key'):
+                    attr = getattr(node, attr_name, None)
+                    if attr is not None:
+                        if isinstance(attr, astnodes.Node):
+                            find_deps(attr)
+                        elif isinstance(attr, (list, tuple)):
+                            for item in attr:
+                                if isinstance(item, astnodes.Node):
+                                    find_deps(item)
+
+        find_deps(chunk)
 
     def _collect_global_variables(self, chunk: astnodes.Chunk) -> List[str]:
         """Collect names of global variables from Assign nodes in module body
