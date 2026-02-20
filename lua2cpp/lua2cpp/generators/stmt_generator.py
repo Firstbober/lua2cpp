@@ -240,26 +240,45 @@ class StmtGenerator(ASTVisitor):
                     if "NEW_TABLE" in expr_code or "Table" in expr_code:
                         return "TABLE"
             elif isinstance(stmt, astnodes.If):
-                if self._infer_return_type(stmt.body) == "TABLE":
+                body_result = self._infer_return_type(stmt.body)
+                if body_result == "TABLE":
                     return "TABLE"
+                if body_result != "void":
+                    has_return = True
                 if stmt.orelse and hasattr(stmt.orelse, 'body'):
-                    if self._infer_return_type(stmt.orelse) == "TABLE":
+                    else_result = self._infer_return_type(stmt.orelse)
+                    if else_result == "TABLE":
                         return "TABLE"
-
-                orelse = stmt.orelse
-                if hasattr(orelse, 'body') and orelse.body:
-                    for stmt2 in self._normalize_block_body(orelse):
-                        if isinstance(stmt2, astnodes.Return):
-                            has_return = True
-                            if not stmt2.values:
-                                return "void"
-                            for value in stmt2.values:
-                                expr_code = self._expr_gen.generate(value)
-                                if "NEW_TABLE" in expr_code or "Table" in expr_code:
-                                    return "TABLE"
-                        elif isinstance(stmt2, astnodes.If):
-                            if self._infer_return_type(stmt2.body) == "TABLE":
-                                return "TABLE"
+                    if else_result != "void":
+                        has_return = True
+            elif isinstance(stmt, astnodes.Fornum):
+                # Recursively check for returns inside for loops
+                result = self._infer_return_type(stmt.body)
+                if result == "TABLE":
+                    return "TABLE"
+                if result != "void":
+                    has_return = True
+            elif isinstance(stmt, astnodes.While):
+                # Recursively check for returns inside while loops
+                result = self._infer_return_type(stmt.body)
+                if result == "TABLE":
+                    return "TABLE"
+                if result != "void":
+                    has_return = True
+            elif isinstance(stmt, astnodes.Repeat):
+                # Recursively check for returns inside repeat loops
+                result = self._infer_return_type(stmt.body)
+                if result == "TABLE":
+                    return "TABLE"
+                if result != "void":
+                    has_return = True
+            elif isinstance(stmt, astnodes.Forin):
+                # Recursively check for returns inside for-in loops
+                result = self._infer_return_type(stmt.body)
+                if result == "TABLE":
+                    return "TABLE"
+                if result != "void":
+                    has_return = True
 
         return "void" if not has_return else "double"
 

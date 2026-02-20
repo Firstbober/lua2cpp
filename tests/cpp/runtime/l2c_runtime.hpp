@@ -87,4 +87,11 @@ namespace l2c {
     TABLE string_format(const std::string& fmt, const TABLE& value);
     NUMBER math_sqrt(const TABLE& value);
     void io_write(const TABLE& value);
+    
+    inline NUMBER mod(NUMBER a, NUMBER b) {
+        if (b == 0) return std::nan("");
+        NUMBER r = std::fmod(a, b);
+        if ((a < 0) != (b < 0) && r != 0) r += b;
+        return r;
+    }
 }

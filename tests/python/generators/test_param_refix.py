@@ -63,11 +63,11 @@ class TestParamRefGeneration(unittest.TestCase):
         cpp_code = generator.generate(func_node)
 
         # Verify template parameters appear for parameters a and b
-        # Generator uses template types: template<typename T1, typename T2>\nauto foo(T1 a, T2 b)
-        assert "T1 a" in cpp_code, \
-            "Generated code should have 'T1 a' for parameter a"
-        assert "T2 b" in cpp_code, \
-            "Generated code should have 'T2 b' for parameter b"
+        # Generator uses forwarding references: template<typename T1, typename T2>\nauto foo(T1&& a, T2&& b)
+        assert "T1&& a" in cpp_code, \
+            "Generated code should have 'T1&& a' for parameter a"
+        assert "T2&& b" in cpp_code, \
+            "Generated code should have 'T2&& b' for parameter b"
 
         # Verify function name is present
         assert "foo(" in cpp_code, \
@@ -108,11 +108,11 @@ class TestParamRefGeneration(unittest.TestCase):
         cpp_code = generator.generate(func_node)
 
         # Verify template parameters appear for parameters x and y
-        # Generator uses template types: template<typename x_t, typename y_t>\ndouble bar(x_t x, y_t y)
-        assert "x_t x" in cpp_code, \
-            "Generated code should have 'x_t x' for parameter x"
-        assert "y_t y" in cpp_code, \
-            "Generated code should have 'y_t y' for parameter y"
+        # Generator uses forwarding references: template<typename x_t, typename y_t>\ndouble bar(x_t&& x, y_t&& y)
+        assert "x_t&& x" in cpp_code, \
+            "Generated code should have 'x_t&& x' for parameter x"
+        assert "y_t&& y" in cpp_code, \
+            "Generated code should have 'y_t&& y' for parameter y"
 
         # Verify function syntax is used for local function
         assert "bar(" in cpp_code, \
@@ -153,9 +153,9 @@ class TestParamRefGeneration(unittest.TestCase):
         cpp_code = generator.generate(func_node)
 
         # Verify template parameter appears for the regular parameter
-        # Generator uses template types: template<typename T1>\nauto test(T1 param)
-        assert "T1 param" in cpp_code, \
-            "Generated code should have 'T1 param' for the regular parameter"
+        # Generator uses forwarding references: template<typename T1>\nauto test(T1&& param)
+        assert "T1&& param" in cpp_code, \
+            "Generated code should have 'T1&& param' for the regular parameter"
 
     def test_multiple_params_all_auto_ref(self):
         """Test that all parameters use template types
@@ -190,13 +190,13 @@ class TestParamRefGeneration(unittest.TestCase):
         cpp_code = generator.generate(func_node)
 
         # Verify all parameters have template types
-        # Generator uses template types: template<typename T1, typename T2, typename T3>\nauto process(T1 a, T2 b, T3 c)
-        assert "T1 a" in cpp_code, \
-            "Generated code should have 'T1 a' for parameter a"
-        assert "T2 b" in cpp_code, \
-            "Generated code should have 'T2 b' for parameter b"
-        assert "T3 c" in cpp_code, \
-            "Generated code should have 'T3 c' for parameter c"
+        # Generator uses forwarding references: template<typename T1, typename T2, typename T3>\nauto process(T1&& a, T2&& b, T3&& c)
+        assert "T1&& a" in cpp_code, \
+            "Generated code should have 'T1&& a' for parameter a"
+        assert "T2&& b" in cpp_code, \
+            "Generated code should have 'T2&& b' for parameter b"
+        assert "T3&& c" in cpp_code, \
+            "Generated code should have 'T3&& c' for parameter c"
 
         # Verify function name is present
         assert "process(" in cpp_code, \

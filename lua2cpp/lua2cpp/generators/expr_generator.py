@@ -183,7 +183,7 @@ class ExprGenerator(ASTVisitor):
     def visit_ModOp(self, node: astnodes.ModOp) -> str:
         left = self.generate(node.left)
         right = self.generate(node.right)
-        return f"({left} % {right})"
+        return f"l2c::mod({left}, {right})"
 
     def visit_ExpoOp(self, node: astnodes.ExpoOp) -> str:
         left = self.generate(node.left)
