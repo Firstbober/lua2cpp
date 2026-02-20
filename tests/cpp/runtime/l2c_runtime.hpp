@@ -67,6 +67,16 @@ struct TABLE {
         return it != str_hash.end() ? it->second : nil;
     }
 
+    TABLE& operator[](const char* key) {
+        return str_hash[key];
+    }
+
+    const TABLE& operator[](const char* key) const {
+        static TABLE nil;
+        auto it = str_hash.find(key);
+        return it != str_hash.end() ? it->second : nil;
+    }
+
     int get_length() const {
         int len = 0;
         for (int i = 1; i < static_cast<int>(array.size()); ++i) {
@@ -79,8 +89,16 @@ struct TABLE {
 };
 
 #define NEW_TABLE TABLE()
+#define NIL TABLE()
 
 namespace l2c {
+    inline bool is_truthy(const TABLE& t) {
+        return t.num != 0 || !t.str.empty() || !t.array.empty() || !t.hash.empty() || !t.str_hash.empty();
+    }
+    inline bool is_truthy(double d) { return d != 0; }
+    inline bool is_truthy(bool b) { return b; }
+    inline bool is_truthy(const std::string& s) { return !s.empty(); }
+    
     void print(const TABLE& value);
     TABLE tonumber(const TABLE& value);
     TABLE tostring(const TABLE& value);
@@ -93,5 +111,20 @@ namespace l2c {
         NUMBER r = std::fmod(a, b);
         if ((a < 0) != (b < 0) && r != 0) r += b;
         return r;
+    }
+}
+
+namespace table_lib {
+    inline std::string concat(const std::string& a, const std::string& b) {
+        return a + b;
+    }
+    inline std::string concat(const char* a, const std::string& b) {
+        return std::string(a) + b;
+    }
+    inline std::string concat(const std::string& a, const char* b) {
+        return a + std::string(b);
+    }
+    inline std::string concat(const char* a, const char* b) {
+        return std::string(a) + std::string(b);
     }
 }
