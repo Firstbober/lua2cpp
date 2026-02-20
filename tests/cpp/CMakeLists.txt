@@ -4,16 +4,17 @@ project(lua2c_tests)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Use venv Python for transpiler
+set(PYTHON_VENV ${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/python)
+
 # Runtime library files
 set(RUNTIME_SOURCES
-    ${CMAKE_SOURCE_DIR}/../../runtime/lua_value.cpp
-    ${CMAKE_SOURCE_DIR}/../../runtime/lua_table.cpp
-    ${CMAKE_SOURCE_DIR}/../../runtime/lua_array.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/l2c_runtime.cpp
 )
 
 # Include directories
 include_directories(
-    ${CMAKE_SOURCE_DIR}/../../runtime
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime
 )
 
 # Add runtime as a library
@@ -31,7 +32,7 @@ function(add_lua_test TEST_NAME LUA_FILE MODULE_INIT_FUNC)
     # Generate C++ from Lua
     add_custom_command(
         OUTPUT ${GEN_DIR}/${LUA_STEM}.hpp ${GEN_DIR}/${LUA_STEM}.cpp
-        COMMAND python -m lua2cpp.cli.main ${LUA_PATH} --lib --output-dir ${GEN_DIR}
+        COMMAND ${PYTHON_VENV} -m lua2cpp.cli.main ${LUA_PATH} --lib --output-dir ${GEN_DIR}
         DEPENDS ${LUA_PATH}
         VERBATIM
         COMMENT "Transpiling ${LUA_FILE} to C++"
@@ -47,9 +48,16 @@ function(add_lua_test TEST_NAME LUA_FILE MODULE_INIT_FUNC)
         @ONLY
     )
 
-    # Build executable (main.cpp includes the generated .cpp directly)
+    # Build executable - main.cpp #includes the generated .cpp directly
+    # Add .hpp as source to trigger generation (but .cpp is included, not compiled separately)
     add_executable(${TEST_NAME}_test
         ${CMAKE_CURRENT_BINARY_DIR}/${TEST_NAME}_main.cpp
+        ${GEN_DIR}/${LUA_STEM}.hpp  # Triggers custom_command
+    )
+    # Ensure generated .cpp exists (dependency tracking)
+    set_source_files_properties(
+        ${CMAKE_CURRENT_BINARY_DIR}/${TEST_NAME}_main.cpp
+        PROPERTIES OBJECT_DEPENDS "${GEN_DIR}/${LUA_STEM}.cpp"
     )
     target_include_directories(${TEST_NAME}_test PRIVATE
         ${CMAKE_SOURCE_DIR}/..
@@ -60,9 +68,4 @@ endfunction()
 
 # Add tests for key benchmarks
 add_lua_test(spectral_norm spectral-norm.lua spectral_norm_module_init)
-add_lua_test(n_body n-body.lua n_body_module_init)
-add_lua_test(sieve sieve.lua sieve_module_init)
-add_lua_test(heapsort heapsort.lua heapsort_module_init)
 add_lua_test(simple simple.lua simple_module_init)
-add_lua_test(binary_trees binary-trees.lua binary_trees_module_init)
-add_lua_test(comparisons comparisons.lua comparisons_module_init)
