@@ -6,8 +6,8 @@ Stores information about which library functions are called and where.
 
 from dataclasses import dataclass
 from typing import List, Optional
-from lua2cpp.core.ast_visitor import ASTVisitor
-from lua2cpp.core.library_registry import LibraryFunctionRegistry
+from .ast_visitor import ASTVisitor
+from .library_registry import LibraryFunctionRegistry
 
 try:
     from luaparser import astnodes

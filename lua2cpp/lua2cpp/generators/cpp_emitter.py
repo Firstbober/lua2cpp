@@ -18,17 +18,17 @@ try:
 except ImportError:
     raise ImportError("luaparser is required. Install with: pip install luaparser")
 
-from lua2cpp.core.scope import ScopeManager
-from lua2cpp.core.symbol_table import SymbolTable
-from lua2cpp.core.types import Type, TypeKind, ASTAnnotationStore
-from lua2cpp.analyzers.function_registry import FunctionSignatureRegistry
-from lua2cpp.analyzers.type_resolver import TypeResolver
-from lua2cpp.generators.expr_generator import ExprGenerator
-from lua2cpp.generators.stmt_generator import StmtGenerator
-from lua2cpp.core.library_call_collector import LibraryCallCollector
-from lua2cpp.generators.header_generator import HeaderGenerator
-from lua2cpp.core.library_registry import LibraryFunctionRegistry
-from lua2cpp.core.call_convention import CallConventionRegistry
+from ..core.scope import ScopeManager
+from ..core.symbol_table import SymbolTable
+from ..core.types import Type, TypeKind, ASTAnnotationStore
+from .analyzers.function_registry import FunctionSignatureRegistry
+from .analyzers.type_resolver import TypeResolver
+from .expr_generator import ExprGenerator
+from .stmt_generator import StmtGenerator
+from ..core.library_call_collector import LibraryCallCollector
+from .header_generator import HeaderGenerator
+from ..core.library_registry import LibraryFunctionRegistry
+from ..core.call_convention import CallConventionRegistry
 
 
 class CppEmitter:
@@ -180,7 +180,8 @@ class CppEmitter:
             for var_name in sorted(self._module_state):
                 var_type = self.get_inferred_type(var_name)
                 cpp_type = self._get_cpp_type_name(var_type.kind)
-                lines.append(f"static {cpp_type} {self._module_prefix}_{var_name};")
+                # Exported symbols are non-static so other modules can use them
+            lines.append(f"{cpp_type} {self._module_prefix}_{var_name};")
             lines.append("")
 
         # Phase 2: Generate forward declarations
@@ -232,23 +233,26 @@ class CppEmitter:
                 module_parts = module_path.split('/')
                 module_name = module_parts[-1]
                 if len(module_parts) > 1:
-                    module_dir = Path('/').joinpath(*module_parts)
-                    if module_dir != current_dir:
-                        try:
-                            relative_path = current_dir.relative_to(module_dir.parent)
-                            include_path = f"{relative_path.as_posix()}/{module_name}.hpp"
-                        except ValueError:
-                            include_path = f"{module_name}.hpp"
+                    # Multi-part module (e.g., "engine/event")
+                    if current_dir.name == "nonred":
+                        # At root, need full path
+                        include_path = f"{module_path}.hpp"
                     else:
-                        include_path = f"{module_name}.hpp"
+                        # In subdirectory, check if same subdir or different
+                        current_subdir = current_dir.name
+                        module_subdir = module_parts[0] if len(module_parts) > 1 else ""
+                        if current_subdir == module_subdir:
+                            include_path = f"{module_name}.hpp"
+                        else:
+                            include_path = f"../{module_path}.hpp"
                 else:
-                    # Single name module
+                    # Single name module (e.g., "card", "game")
                     if current_dir.name == module_name:
                         include_path = f"{module_name}.hpp"
-                    elif module_name not in [p for p in current_dir.parts[:-1]]:
-                        include_path = f"../{module_name}.hpp"
-                    else:
+                    elif current_dir.name == "nonred" or "nonred" not in current_dir.parts:
                         include_path = f"{module_name}.hpp"
+                    else:
+                        include_path = f"../{module_name}.hpp"
                 includes.append(f'#include "{include_path}"')
             else:
                 module_name = module_path.split('/')[-1]
@@ -265,8 +269,19 @@ class CppEmitter:
                 lines.insert(extern_pos + 1, "extern TABLE G;")
                 extern_pos += 1
             for cpp_var in sorted(self._module_externs):
-                lines.insert(extern_pos + 1, f"extern TABLE {cpp_var};")
-                extern_pos += 1
+                # Skip extern for our own module's symbols
+                if not cpp_var.startswith(self._module_prefix + "_"):
+                    lines.insert(extern_pos + 1, f"extern TABLE {cpp_var};")
+                    extern_pos += 1
+
+            for cpp_var in sorted(self._module_externs):
+                if cpp_var.startswith(self._module_prefix + "_"):
+                    continue
+                for symbol_name, (_, var) in self._module_export_map.items():
+                    if var == cpp_var:
+                        lines.insert(extern_pos + 1, f"#define {symbol_name} {cpp_var}")
+                        extern_pos += 1
+                        break
 
         return "\n".join(lines)
 
@@ -424,7 +439,7 @@ class CppEmitter:
         Returns:
             C++ type name string (NUMBER, STRING, TABLE, etc.)
         """
-        from lua2cpp.core.types import TypeKind
+        from ..core.types import TypeKind
         
         type_map = {
             TypeKind.NUMBER: "NUMBER",

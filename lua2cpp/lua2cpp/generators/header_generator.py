@@ -5,8 +5,8 @@ for Lua standard library functions used in transpiled code.
 """
 
 from typing import List, Set, Optional
-from lua2cpp.core.library_registry import LibraryFunctionRegistry, LibraryFunction
-from lua2cpp.core.library_call_collector import LibraryCall
+from ..core.library_registry import LibraryFunctionRegistry, LibraryFunction
+from ..core.library_call_collector import LibraryCall
 
 
 class HeaderGenerator:
@@ -163,7 +163,7 @@ class HeaderGenerator:
             params = self._build_parameter_list(func_info.params)
 
             # Generate template function for variadic functions
-            from lua2cpp.core.types import TypeKind
+            from ..core.types import TypeKind
             if len(func_info.params) > 0 and func_info.params[-1] == TypeKind.VARIANT:
                 # Variadic function - use template
                 lines.append(f"    template <typename... Args>")
@@ -227,7 +227,7 @@ class HeaderGenerator:
         Returns:
             C++ type name as string
         """
-        from lua2cpp.core.types import TypeKind
+        from ..core.types import TypeKind
 
         if type_kind == TypeKind.UNKNOWN:
             return "auto"
@@ -257,7 +257,7 @@ class HeaderGenerator:
         Returns:
             Parameter list as string (e.g., "State* state, double x, std::string s")
         """
-        from lua2cpp.core.types import TypeKind
+        from ..core.types import TypeKind
 
         params = ["State* state"]
 

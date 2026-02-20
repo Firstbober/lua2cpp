@@ -16,9 +16,9 @@ except ImportError:
 
 from lua2cpp.generators import CppEmitter
 from lua2cpp.generators.header_generator import HeaderGenerator
-from lua2cpp.core.library_call_collector import LibraryCallCollector, LibraryCallCollector as Collector
-from lua2cpp.analyzers.y_combinator_detector import YCombinatorDetector
-from lua2cpp.core.call_convention import CallConventionRegistry
+from .core.library_call_collector import LibraryCallCollector, LibraryCallCollector as Collector
+from .analyzers.y_combinator_detector import YCombinatorDetector
+from .core.call_convention import CallConventionRegistry
 
 
 def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False, convention_registry: Optional[CallConventionRegistry] = None) -> Tuple[str, List, Optional[Collector], Any]:
@@ -123,7 +123,27 @@ def extract_function_signatures(cpp_code: str) -> List[str]:
             func_name = match.group(2).strip()
             params = match.group(3).strip()
 
-            signature = f"{return_type} {func_name}({params})"
+            # Detect template parameters (T1, T2, etc.) in the function signature
+            # This handles: auto func(T1&& x) -> template<typename T1> auto func(T1&& x)
+            template_params = []
+            if params:
+                # Match template type parameters like T1, T2, T3, etc.
+                template_param_pattern = r'\b([A-Z]\d+)\b'
+                template_param_matches = re.findall(template_param_pattern, params)
+                if template_param_matches:
+                    # Extract unique template parameters
+                    template_params = list(set(template_param_matches))
+                    # Sort them to ensure consistent ordering
+                    template_params.sort()
+
+            # Build the signature with or without template prefix
+            if template_params:
+                # Add template declaration: template<typename T1, typename T2, ...>
+                template_prefix = f"template<{', '.join([f'typename {tp}' for tp in template_params])}>"
+                signature = f"{template_prefix} {return_type} {func_name}({params})"
+            else:
+                signature = f"{return_type} {func_name}({params})"
+
             signatures.append(signature)
 
     return signatures

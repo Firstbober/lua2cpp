@@ -10,7 +10,7 @@ Manages variable scoping following Lua's scoping rules:
 from typing import Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lua2cpp.core.types import Type
+    from .types import Type
 
 
 class Symbol:

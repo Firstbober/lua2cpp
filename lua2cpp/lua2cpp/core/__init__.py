@@ -1,2 +1,2 @@
-from lua2cpp.core.library_registry import LibraryFunction, LibraryFunctionRegistry
-from lua2cpp.core.library_call_collector import LibraryCall, LibraryCallCollector
+from .library_registry import LibraryFunction, LibraryFunctionRegistry
+from .library_call_collector import LibraryCall, LibraryCallCollector

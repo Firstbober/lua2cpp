@@ -5,7 +5,7 @@ Works with ScopeManager to track variables, functions, and their attributes.
 """
 
 from typing import Optional, List
-from lua2cpp.core.scope import ScopeManager, Symbol
+from .scope import ScopeManager, Symbol
 
 
 class SymbolTable:

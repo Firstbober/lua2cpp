@@ -6,7 +6,7 @@ Provides lookup methods for library function metadata during transpilation.
 
 from dataclasses import dataclass
 from typing import Optional, Dict, List
-from lua2cpp.core.types import TypeKind
+from .types import TypeKind
 
 
 @dataclass

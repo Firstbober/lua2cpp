@@ -5,10 +5,10 @@ Implements double-dispatch pattern for literal and name expressions.
 """
 
 from typing import Any, Optional, Set, TYPE_CHECKING
-from lua2cpp.core.ast_visitor import ASTVisitor
-from lua2cpp.core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
-from lua2cpp.core.call_convention import CallConventionRegistry, CallConvention, flatten_index_chain_parts, get_root_module
-from lua2cpp.core.types import ASTAnnotationStore, TypeKind
+from ..core.ast_visitor import ASTVisitor
+from ..core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
+from ..core.call_convention import CallConventionRegistry, CallConvention, flatten_index_chain_parts, get_root_module
+from ..core.types import ASTAnnotationStore, TypeKind
 
 try:
     from luaparser import astnodes
@@ -18,7 +18,7 @@ except ImportError:
     )
 
 if TYPE_CHECKING:
-    from lua2cpp.core.library_registry import LibraryFunctionRegistry
+    from ..core.library_registry import LibraryFunctionRegistry
 
 
 class ExprGenerator(ASTVisitor):

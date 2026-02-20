@@ -72,7 +72,7 @@ def _transpile_and_validate(lua_filename):
     basename = lua_file.stem
     cpp_file = GENERATED_DIR / f"{basename}.cpp"
 
-    cpp_code, _, _ = transpile_file(lua_file)
+    cpp_code, _, _, _ = transpile_file(lua_file)
 
     with open(cpp_file, 'w', encoding='utf-8') as f:
         f.write(cpp_code)

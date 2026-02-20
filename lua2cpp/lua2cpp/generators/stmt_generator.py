@@ -5,9 +5,9 @@ Implements double-dispatch pattern for local assignments and return statements.
 """
 
 from typing import Any, Optional, List, TYPE_CHECKING, Set
-from lua2cpp.core.ast_visitor import ASTVisitor
-from lua2cpp.core.types import Type, ASTAnnotationStore
-from lua2cpp.generators.expr_generator import ExprGenerator
+from ..core.ast_visitor import ASTVisitor
+from ..core.types import Type, ASTAnnotationStore
+from .expr_generator import ExprGenerator
 
 try:
     from luaparser import astnodes
@@ -17,9 +17,9 @@ except ImportError:
     )
 
 if TYPE_CHECKING:
-    from lua2cpp.core.library_registry import LibraryFunctionRegistry
+    from ..core.library_registry import LibraryFunctionRegistry
 
-from lua2cpp.core.call_convention import CallConventionRegistry, CallConvention, flatten_index_chain_parts, get_root_module
+from ..core.call_convention import CallConventionRegistry, CallConvention, flatten_index_chain_parts, get_root_module
 
 
 class StmtGenerator(ASTVisitor):
