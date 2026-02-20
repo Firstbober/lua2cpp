@@ -229,8 +229,12 @@ class StmtGenerator(ASTVisitor):
         return "{\n" + "\n".join(statements) + "\n}"
 
     def _infer_return_type(self, block: astnodes.Block) -> str:
+        has_return = False
         for stmt in self._normalize_block_body(block):
             if isinstance(stmt, astnodes.Return):
+                has_return = True
+                if not stmt.values:
+                    return "void"
                 for value in stmt.values:
                     expr_code = self._expr_gen.generate(value)
                     if "NEW_TABLE" in expr_code or "Table" in expr_code:
@@ -246,6 +250,9 @@ class StmtGenerator(ASTVisitor):
                 if hasattr(orelse, 'body') and orelse.body:
                     for stmt2 in self._normalize_block_body(orelse):
                         if isinstance(stmt2, astnodes.Return):
+                            has_return = True
+                            if not stmt2.values:
+                                return "void"
                             for value in stmt2.values:
                                 expr_code = self._expr_gen.generate(value)
                                 if "NEW_TABLE" in expr_code or "Table" in expr_code:
@@ -253,7 +260,8 @@ class StmtGenerator(ASTVisitor):
                         elif isinstance(stmt2, astnodes.If):
                             if self._infer_return_type(stmt2.body) == "TABLE":
                                 return "TABLE"
-        return "double"
+
+        return "void" if not has_return else "double"
 
     def visit_If(self, node: astnodes.If) -> str:
         cond_code = self._expr_gen.generate(node.test)
@@ -320,7 +328,7 @@ class StmtGenerator(ASTVisitor):
             if isinstance(arg, astnodes.Varargs):
                 continue
             template_params.append(f"T{param_idx}")
-            params.append(f"T{param_idx} {arg.id}")
+            params.append(f"T{param_idx}&& {arg.id}")
             param_idx += 1
         
         template_str = ""
@@ -366,7 +374,7 @@ class StmtGenerator(ASTVisitor):
             if isinstance(arg, astnodes.Varargs):
                 continue
             template_params.append(f"{arg.id}_t")
-            params.append(f"{arg.id}_t {arg.id}")
+            params.append(f"{arg.id}_t&& {arg.id}")
             arg_type_info = ASTAnnotationStore.get_type(arg)
             if arg_type_info is not None:
                 param_type = arg_type_info.cpp_type()

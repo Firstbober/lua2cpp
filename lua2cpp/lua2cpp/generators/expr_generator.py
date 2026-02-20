@@ -63,17 +63,7 @@ class ExprGenerator(ASTVisitor):
         return self.visit(node)
 
     def visit_Number(self, node: astnodes.Number) -> str:
-        """Generate C++ number literal
-
-        Args:
-            node: Number AST node
-
-        Returns:
-            str: Number literal as raw value
-        """
-        # Lua numbers are always double in C++ representation
-        # Return the numeric value as-is (Lua parser handles formatting)
-        return str(node.n)
+        return f"NUMBER({node.n})"
 
     def visit_String(self, node: astnodes.String) -> str:
         """Generate C++ string literal with proper escaping
