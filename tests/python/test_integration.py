@@ -25,6 +25,25 @@ LUA_TEST_DIR = Path(__file__).parent.parent.parent / "tests" / "cpp" / "lua"
 GENERATED_DIR = Path(__file__).parent.parent.parent / "tests" / "cpp" / "generated"
 
 
+@pytest.fixture(autouse=True, scope="session")
+def clean_cpp_build():
+    """Autouse fixture to clean C++ build artifacts before tests."""
+    build_dir = Path(__file__).parent.parent / "cpp" / "build"
+    generated_dir = Path(__file__).parent.parent / "cpp" / "generated"
+    
+    if build_dir.exists():
+        subprocess.run(["make", "clean"], cwd=build_dir, capture_output=True)
+    
+    if generated_dir.exists():
+        for f in generated_dir.glob("*.cpp"):
+            f.unlink()
+        for f in generated_dir.glob("*.hpp"):
+            f.unlink()
+    
+    yield
+
+
+
 def _run_gpp_syntax_check(cpp_file, timeout=60):
     """Run g++ syntax check on generated C++ file.
 
