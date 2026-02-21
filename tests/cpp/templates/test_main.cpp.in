@@ -1,8 +1,8 @@
 // Auto-generated main for @MODULE_NAME@
-#include "l2c_runtime.hpp"
+// Runtime is provided by the included .cpp file below
 #include <iostream>
 #include <exception>
-// Include the .cpp directly for template functions (no separate header needed)
+// Include the .cpp directly (which includes the appropriate runtime)
 #include "@MODULE_FILE@.cpp"
 
 // Detect if @MODULE_INIT_FUNC@ takes a TABLE argument using SFINAE

@@ -32,7 +32,7 @@ function(add_lua_test TEST_NAME LUA_FILE MODULE_INIT_FUNC)
     # Generate C++ from Lua
     add_custom_command(
         OUTPUT ${GEN_DIR}/${LUA_STEM}.hpp ${GEN_DIR}/${LUA_STEM}.cpp
-        COMMAND ${PYTHON_VENV} -m lua2cpp.cli.main ${LUA_PATH} --lib --output-dir ${GEN_DIR}
+        COMMAND ${PYTHON_VENV} -m lua2cpp.cli.main ${LUA_PATH} --lib --runtime=lua_table --output-dir ${GEN_DIR}
         DEPENDS ${LUA_PATH}
         VERBATIM
         COMMENT "Transpiling ${LUA_FILE} to C++"
