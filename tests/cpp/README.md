@@ -4,12 +4,30 @@ This directory contains a CMake-based C++ project for testing Lua2C++ transpiler
 
 ## Status
 
-The C++ testing infrastructure has been updated to match the new transpiler architecture.
+The C++ testing infrastructure uses NaN-boxed TValue/LuaTable runtime for near-LuaJIT performance.
 
-### Current State
-- ✅ **Simple test works** (simple.lua) - Library mode, no command-line arguments
-- ⏸️ **Complex tests** have code generation bugs that need to be fixed in the transpiler before they can be enabled
-- 📦 **17 Lua test files** available in `lua/` directory for future use
+### Working Tests (4/35 - Output Matches Lua)
+| Test | Status | Notes |
+|------|--------|-------|
+| simple | ✅ | Returns 12 |
+| spectral-norm | ✅ | Returns 1.274219991 |
+| binary-trees | ✅ | Full output matches (including stretch tree) |
+| n-body | ✅ | Full output matches |
+
+### Building but Buggy (1/35)
+| Test | Status | Issue |
+|------|--------|-------|
+| fannkuch-redux | ⚠️ | Returns nil instead of correct values |
+
+### Known Issues Blocking Other Tests
+1. **Missing runtime functions**: loadstring, load, setmetatable
+2. **Transpiler issues**: ambiguous operator=, string-to-double conversion
+3. **Template issues**: function return type inference
+
+### Recent Fixes
+- `visit_Do` - Do-blocks now transpile correctly
+- `string.upper/gsub`, `table.remove/unpack`, `io.read`, `os.clock` - Added to runtime
+- `TableSlotProxy` comparison operators - Disambiguates proxy-to-proxy comparisons
 
 ## Current Working Test
 
