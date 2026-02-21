@@ -282,6 +282,9 @@ class StmtGenerator(ASTVisitor):
 
         return "void" if not has_return else "double"
 
+    def visit_Do(self, node: astnodes.Do) -> str:
+        return self._generate_block(node.body)
+
     def visit_If(self, node: astnodes.If) -> str:
         cond_code = self._expr_gen.generate(node.test)
         if_body = self._generate_block(node.body)
