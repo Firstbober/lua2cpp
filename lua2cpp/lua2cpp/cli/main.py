@@ -7,6 +7,9 @@ import traceback
 from pathlib import Path
 from typing import List, Set, Optional, Dict, Tuple, Any
 
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 try:
     from luaparser import ast
     from luaparser.ast import SyntaxException
@@ -21,7 +24,7 @@ from ..analyzers.y_combinator_detector import YCombinatorDetector
 from ..core.call_convention import CallConventionRegistry
 
 
-def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False, convention_registry: Optional[CallConventionRegistry] = None) -> Tuple[str, List, Optional[Collector], Any]:
+def transpile_file(input_file: Path, collect_library_calls: bool = False, output_dir: Optional[Path] = None, verbose: bool = False, convention_registry: Optional[CallConventionRegistry] = None, runtime: str = "table") -> Tuple[str, List, Optional[Collector], Any]:
     """Transpile a single Lua file to C++
 
     Args:
@@ -73,7 +76,7 @@ def transpile_file(input_file: Path, collect_library_calls: bool = False, output
         collector.visit(tree)
         library_calls = collector.get_library_calls()
 
-    emitter = CppEmitter(convention_registry=convention_registry)
+    emitter = CppEmitter(convention_registry=convention_registry, runtime=runtime)
     cpp_code = emitter.generate_file(tree, input_file)
 
     if y_warnings:
@@ -234,6 +237,12 @@ def main():
         type=Path,
         help="Load call conventions from YAML config file"
     )
+    parser.add_argument(
+        "--runtime",
+        choices=["table", "lua_table"],
+        default="table",
+        help="Select runtime: 'table' (default TABLE struct) or 'lua_table' (TValue/LuaTable)"
+    )
 
     args = parser.parse_args()
 
@@ -263,7 +272,8 @@ def main():
             collect_library_calls=args.header,
             output_dir=args.output_dir,
             verbose=args.verbose,
-            convention_registry=convention_registry
+            convention_registry=convention_registry,
+            runtime=args.runtime
         )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -46,7 +46,7 @@ class CppEmitter:
     6. Returns complete C++ code
     """
 
-    def __init__(self, convention_registry: Optional[CallConventionRegistry] = None) -> None:
+    def __init__(self, convention_registry: Optional[CallConventionRegistry] = None, runtime: str = "table") -> None:
         """Initialize C++ emitter with required components
 
         Creates ScopeManager, SymbolTable, and FunctionSignatureRegistry
@@ -54,12 +54,14 @@ class CppEmitter:
 
         Args:
             convention_registry: Optional registry for call conventions (default: create new)
+            runtime: Runtime type: "table" (default TABLE struct) or "lua_table" (TValue/LuaTable)
         """
         self.scope_manager = ScopeManager()
         self.symbol_table = SymbolTable(self.scope_manager)
         self.function_registry = FunctionSignatureRegistry()
         self._library_registry = LibraryFunctionRegistry()
         self._convention_registry = convention_registry or CallConventionRegistry()
+        self._runtime = runtime
 
         # Generators for expressions and statements
         self._expr_gen = ExprGenerator(self._library_registry, convention_registry=self._convention_registry)
@@ -221,7 +223,10 @@ class CppEmitter:
 
         # Add includes after header comment
         includes: List[str] = []
-        includes.append('#include "../runtime/l2c_runtime.hpp"')
+        if self._runtime == "lua_table":
+            includes.append('#include "../runtime/l2c_runtime_lua_table.hpp"')
+        else:
+            includes.append('#include "../runtime/l2c_runtime.hpp"')
         if self._has_g_table:
             includes.append('#include "../runtime/globals.hpp"')
         if self._has_love:
