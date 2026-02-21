@@ -227,10 +227,26 @@ inline NUMBER mod(NUMBER a, NUMBER b) {
 }
 
 // ---------- String functions ----------
+inline bool is_int_format(const char* fmt) {
+    const char* p = fmt;
+    if (*p != '%') return false;
+    p++;
+    while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') p++;
+    while (*p >= '0' && *p <= '9') p++;
+    if (*p == '.') { p++; while (*p >= '0' && *p <= '9') p++; }
+    if (*p == 'l' || *p == 'h' || *p == 'L') p++;
+    return (*p == 'd' || *p == 'i' || *p == 'x' || *p == 'X' || *p == 'o' || *p == 'u');
+}
+
 inline TValue string_format_single(const char* fmt, const TValue& value) {
     static char buf[1024];
     if (value.isNumber()) {
-        std::snprintf(buf, sizeof(buf), fmt, value.toNumber());
+        double num = value.toNumber();
+        if (is_int_format(fmt)) {
+            std::snprintf(buf, sizeof(buf), fmt, static_cast<long long>(num));
+        } else {
+            std::snprintf(buf, sizeof(buf), fmt, num);
+        }
     } else if (value.isInteger()) {
         std::snprintf(buf, sizeof(buf), fmt, value.toInteger());
     } else if (value.isString()) {
@@ -245,9 +261,86 @@ inline TValue string_format(const char* fmt) {
     return TValue::String(fmt);
 }
 
+// Find the end of a format specifier (e.g., "%d", "%.2f", "%5s")
+// Returns the position right after the specifier letter
+inline size_t find_spec_end(const char* fmt) {
+    size_t i = 0;
+    if (fmt[i] != '%') return 0;
+    i++; // skip '%'
+    
+    // Skip flags: -, +, space, #, 0
+    while (fmt[i] == '-' || fmt[i] == '+' || fmt[i] == ' ' || fmt[i] == '#' || fmt[i] == '0') {
+        i++;
+    }
+    
+    // Skip width (digits or *)
+    while (fmt[i] >= '0' && fmt[i] <= '9') {
+        i++;
+    }
+    
+    // Skip precision (.digits)
+    if (fmt[i] == '.') {
+        i++;
+        while (fmt[i] >= '0' && fmt[i] <= '9') {
+            i++;
+        }
+    }
+    
+    // Skip length modifier (l, ll, h, etc.)
+    if (fmt[i] == 'l' || fmt[i] == 'h' || fmt[i] == 'L' || fmt[i] == 'z' || fmt[i] == 'j') {
+        i++;
+        if (fmt[i] == 'l') i++; // 'll'
+    }
+    
+    // The conversion specifier letter
+    if (fmt[i] != '\0') {
+        i++;
+    }
+    
+    return i;
+}
+
 template<typename T, typename... Args>
 TValue string_format(const char* fmt, T&& first, Args&&... args) {
-    return string_format_single(fmt, detail::to_tvalue(first));
+    static char result_buf[4096];
+    
+    size_t i = 0;
+    while (fmt[i] != '\0') {
+        if (fmt[i] == '%') {
+            if (fmt[i + 1] == '%') {
+                i += 2;
+                continue;
+            }
+            size_t spec_end = find_spec_end(fmt + i);
+            
+            char spec[32];
+            size_t spec_len = spec_end;
+            if (spec_len >= sizeof(spec)) spec_len = sizeof(spec) - 1;
+            std::memcpy(spec, fmt + i, spec_len);
+            spec[spec_len] = '\0';
+            
+            TValue formatted = string_format_single(spec, detail::to_tvalue(first));
+            const char* formatted_str = static_cast<const char*>(formatted.toPtr());
+            
+            std::snprintf(result_buf, sizeof(result_buf), "%.*s%s",
+                (int)i, fmt, formatted_str);
+            size_t prefix_len = std::strlen(result_buf);
+            
+            if constexpr (sizeof...(args) > 0) {
+                TValue rest = string_format(fmt + i + spec_end, std::forward<Args>(args)...);
+                std::snprintf(result_buf + prefix_len, sizeof(result_buf) - prefix_len, "%s",
+                    static_cast<const char*>(rest.toPtr()));
+            } else {
+                std::strncpy(result_buf + prefix_len, fmt + i + spec_end, sizeof(result_buf) - prefix_len - 1);
+                result_buf[sizeof(result_buf) - 1] = '\0';
+            }
+            
+            return TValue::String(result_buf);
+        }
+        i++;
+    }
+    
+    return TValue::String(fmt);
 }
 
 inline TValue string_find(const char* s, const char* pattern, NUMBER init = 1) {
