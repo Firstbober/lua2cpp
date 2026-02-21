@@ -181,7 +181,7 @@ class CppEmitter:
                 var_type = self.get_inferred_type(var_name)
                 cpp_type = self._get_cpp_type_name(var_type.kind)
                 # Exported symbols are non-static so other modules can use them
-            lines.append(f"{cpp_type} {self._module_prefix}_{var_name};")
+                lines.append(f"{cpp_type} {self._module_prefix}_{var_name};")
             lines.append("")
 
         # Phase 2: Generate forward declarations
