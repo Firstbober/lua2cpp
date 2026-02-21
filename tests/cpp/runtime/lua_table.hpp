@@ -49,6 +49,7 @@ struct LuaTable;
 struct Closure;
 struct Userdata;
 struct Thread;
+struct TableSlotProxy;  // Forward declaration for operator[] return type
 
 // ============================================================
 // TValue — NaN-boxed tagged value (8 bytes)
@@ -152,14 +153,16 @@ public:
     }
     
     // Table access operators (defined after LuaTable)
-    TValue& operator[](int32_t index);
-    TValue  operator[](int32_t index) const;
-    TValue& operator[](double index);
-    TValue  operator[](double index) const;
-    TValue& operator[](const char* key);
-    TValue  operator[](const char* key) const;
-    TValue& operator[](const std::string& key);
-    TValue  operator[](const std::string& key) const;
+    TableSlotProxy operator[](int32_t index);
+    TValue         operator[](int32_t index) const;
+    TableSlotProxy operator[](double index);
+    TValue         operator[](double index) const;
+    TableSlotProxy operator[](const char* key);
+    TValue         operator[](const char* key) const;
+    TableSlotProxy operator[](const std::string& key);
+    TValue         operator[](const std::string& key) const;
+    TableSlotProxy operator[](const TableSlotProxy& key);  // For table[proxy]
+    TValue         operator[](const TableSlotProxy& key) const;
 };
 
 static_assert(sizeof(TValue) == 8, "TValue must be 8 bytes");
@@ -507,6 +510,48 @@ struct alignas(64) LuaTable {
     }
 
     // ================================================================
+    // rawfind — non-mutating lookup, returns pointer or nullptr
+    // Used by TableSlotProxy for read access without side effects
+    // ================================================================
+    ALWAYS_INLINE TValue* rawfind(TValue key) {
+        // Integer key in array
+        if (key.isInteger()) {
+            int32_t i = key.toInteger();
+            if (i >= 1 && (uint32_t)i <= arraySize) {
+                return array[(uint32_t)(i - 1)].isNil() ? nullptr : &array[(uint32_t)(i - 1)];
+            }
+        }
+        // Normalize double→integer keys
+        else if (key.isNumber()) {
+            double d = key.toNumber();
+            int32_t i = (int32_t)d;
+            if ((double)i == d)
+                key = TValue::Integer(i);
+        }
+        // Hash lookup
+        return hash.find(key);
+    }
+
+    ALWAYS_INLINE const TValue* rawfind(TValue key) const {
+        // Integer key in array
+        if (key.isInteger()) {
+            int32_t i = key.toInteger();
+            if (i >= 1 && (uint32_t)i <= arraySize) {
+                return array[(uint32_t)(i - 1)].isNil() ? nullptr : &array[(uint32_t)(i - 1)];
+            }
+        }
+        // Normalize double→integer keys
+        else if (key.isNumber()) {
+            double d = key.toNumber();
+            int32_t i = (int32_t)d;
+            if ((double)i == d)
+                key = TValue::Integer(i);
+        }
+        // Hash lookup
+        return hash.find(key);
+    }
+
+    // ================================================================
     // rawset — write key/value, triggers resize if needed
     // ================================================================
     ALWAYS_INLINE void rawset(TValue key, TValue val) {
@@ -809,11 +854,104 @@ public:
 };
 
 // ============================================================
+// TableSlotProxy — enables correct read/write semantics for operator[]
+// ============================================================
+struct TableSlotProxy {
+    LuaTable* tbl;
+    TValue    key;
+
+    // Implicit read: pure lookup, no side effects
+    operator TValue() const {
+        if (!tbl) return TValue::Nil();
+        TValue* p = tbl->rawfind(key);
+        return p ? *p : TValue::Nil();
+    }
+    
+    // Implicit conversion to double for return statements
+    operator double() const { return static_cast<TValue>(*this).asNumber(); }
+
+    // Write: creates slot on demand
+    TableSlotProxy& operator=(TValue val) {
+        assert(tbl && "Cannot assign to nil table");
+        tbl->rawset(key, val);
+        return *this;
+    }
+    
+    TableSlotProxy& operator=(double val) {
+        return *this = TValue::Number(val);
+    }
+
+    // Support chained table access: proxy[k] where proxy is a table slot
+    TableSlotProxy operator[](TValue k) const {
+        TValue v = static_cast<TValue>(*this);
+        return TableSlotProxy{ v.isTable() ? v.toTable() : nullptr, k };
+    }
+    TableSlotProxy operator[](int32_t k) const {
+        return (*this)[TValue::Integer(k)];
+    }
+    TableSlotProxy operator[](double k) const {
+        int32_t i = (int32_t)k;
+        if ((double)i == k) return (*this)[TValue::Integer(i)];
+        return (*this)[TValue::Number(k)];
+    }
+    TableSlotProxy operator[](const char* k) const {
+        return (*this)[TValue::String(k)];
+    }
+    
+    // Arithmetic operators - convert to TValue and delegate
+    double operator+(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() + static_cast<TValue>(o).asNumber(); }
+    double operator-(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() - static_cast<TValue>(o).asNumber(); }
+    double operator*(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() * static_cast<TValue>(o).asNumber(); }
+    double operator/(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() / static_cast<TValue>(o).asNumber(); }
+    double operator+(double o) const { return static_cast<TValue>(*this).asNumber() + o; }
+    double operator-(double o) const { return static_cast<TValue>(*this).asNumber() - o; }
+    double operator*(double o) const { return static_cast<TValue>(*this).asNumber() * o; }
+    double operator/(double o) const { return static_cast<TValue>(*this).asNumber() / o; }
+    double operator+(int o) const { return static_cast<TValue>(*this).asNumber() + o; }
+    double operator-(int o) const { return static_cast<TValue>(*this).asNumber() - o; }
+    double operator*(int o) const { return static_cast<TValue>(*this).asNumber() * o; }
+    double operator/(int o) const { return static_cast<TValue>(*this).asNumber() / o; }
+    
+    // Comparison operators
+    bool operator==(const TableSlotProxy& o) const { return static_cast<TValue>(*this).bits == static_cast<TValue>(o).bits; }
+    bool operator!=(const TableSlotProxy& o) const { return static_cast<TValue>(*this).bits != static_cast<TValue>(o).bits; }
+    bool operator==(double o) const { return static_cast<TValue>(*this).asNumber() == o; }
+    bool operator!=(double o) const { return static_cast<TValue>(*this).asNumber() != o; }
+    bool operator==(int o) const { return static_cast<TValue>(*this).asNumber() == o; }
+    bool operator!=(int o) const { return static_cast<TValue>(*this).asNumber() != o; }
+    bool operator<(double o) const { return static_cast<TValue>(*this).asNumber() < o; }
+    bool operator>(double o) const { return static_cast<TValue>(*this).asNumber() > o; }
+    bool operator<=(double o) const { return static_cast<TValue>(*this).asNumber() <= o; }
+    bool operator>=(double o) const { return static_cast<TValue>(*this).asNumber() >= o; }
+    bool operator<(int o) const { return static_cast<TValue>(*this).asNumber() < o; }
+    bool operator>(int o) const { return static_cast<TValue>(*this).asNumber() > o; }
+    bool operator<=(int o) const { return static_cast<TValue>(*this).asNumber() <= o; }
+    bool operator>=(int o) const { return static_cast<TValue>(*this).asNumber() >= o; }
+    
+    // Unary operators
+    double operator-() const { return -static_cast<TValue>(*this).asNumber(); }
+    bool operator!() const { return static_cast<TValue>(*this).isFalsy(); }
+    
+    // Implicit bool conversion for ternary and conditionals
+    operator bool() const { return !static_cast<TValue>(*this).isFalsy(); }
+    
+    // Forward TValue methods for convenience
+    double asNumber() const { return static_cast<TValue>(*this).asNumber(); }
+    int32_t toInteger() const { return static_cast<TValue>(*this).toInteger(); }
+    bool isNil() const { return static_cast<TValue>(*this).isNil(); }
+    bool isTable() const { return static_cast<TValue>(*this).isTable(); }
+    bool isInteger() const { return static_cast<TValue>(*this).isInteger(); }
+    bool isString() const { return static_cast<TValue>(*this).isString(); }
+    bool isFalsy() const { return static_cast<TValue>(*this).isFalsy(); }
+    LuaTable* toTable() const { return static_cast<TValue>(*this).toTable(); }
+};
+
+// ============================================================
 // TValue operator[] — table access for transpiler compatibility
 // ============================================================
-inline TValue& TValue::operator[](int32_t index) {
-    if (!isTable()) *this = Table(LuaTable::create(16, 0));
-    return toTable()->rawsetref(Integer(index));
+// Non-const operator[] returns proxy — no side effects until assignment
+inline TableSlotProxy TValue::operator[](int32_t index) {
+    return TableSlotProxy{ isTable() ? toTable() : nullptr, Integer(index) };
 }
 
 inline TValue TValue::operator[](int32_t index) const {
@@ -821,11 +959,10 @@ inline TValue TValue::operator[](int32_t index) const {
     return toTable()->rawget(Integer(index));
 }
 
-inline TValue& TValue::operator[](double index) {
-    if (!isTable()) *this = Table(LuaTable::create(16, 0));
+inline TableSlotProxy TValue::operator[](double index) {
     int32_t i = (int32_t)index;
-    if ((double)i == index) return toTable()->rawsetref(Integer(i));
-    return toTable()->rawsetref(Number(index));
+    if ((double)i == index) return TableSlotProxy{ isTable() ? toTable() : nullptr, Integer(i) };
+    return TableSlotProxy{ isTable() ? toTable() : nullptr, Number(index) };
 }
 
 inline TValue TValue::operator[](double index) const {
@@ -835,9 +972,8 @@ inline TValue TValue::operator[](double index) const {
     return toTable()->rawget(Number(index));
 }
 
-inline TValue& TValue::operator[](const char* key) {
-    if (!isTable()) *this = Table(LuaTable::create(0, 8));
-    return toTable()->rawsetref(String(key));
+inline TableSlotProxy TValue::operator[](const char* key) {
+    return TableSlotProxy{ isTable() ? toTable() : nullptr, String(key) };
 }
 
 inline TValue TValue::operator[](const char* key) const {
@@ -845,12 +981,26 @@ inline TValue TValue::operator[](const char* key) const {
     return toTable()->rawget(String(key));
 }
 
-inline TValue& TValue::operator[](const std::string& key) {
+inline TableSlotProxy TValue::operator[](const std::string& key) {
     return (*this)[key.c_str()];
 }
 
 inline TValue TValue::operator[](const std::string& key) const {
     return (*this)[key.c_str()];
+}
+
+inline TableSlotProxy TValue::operator[](const TableSlotProxy& key) {
+    TValue k = static_cast<TValue>(key);
+    if (k.isInteger()) return TableSlotProxy{ isTable() ? toTable() : nullptr, k };
+    if (k.isNumber()) return TableSlotProxy{ isTable() ? toTable() : nullptr, k };
+    if (k.isString()) return TableSlotProxy{ isTable() ? toTable() : nullptr, k };
+    return TableSlotProxy{ nullptr, k };
+}
+
+inline TValue TValue::operator[](const TableSlotProxy& key) const {
+    if (!isTable()) return Nil();
+    TValue k = static_cast<TValue>(key);
+    return toTable()->rawget(k);
 }
 
 // ============================================================
@@ -865,6 +1015,12 @@ inline double operator*(double a, const TValue& b) { return a * b.asNumber(); }
 inline double operator+(double a, const TValue& b) { return a + b.asNumber(); }
 inline double operator-(double a, const TValue& b) { return a - b.asNumber(); }
 inline double operator/(double a, const TValue& b) { return a / b.asNumber(); }
+
+// Reverse operators for double * TableSlotProxy
+inline double operator*(double a, const TableSlotProxy& b) { return a * static_cast<TValue>(b).asNumber(); }
+inline double operator+(double a, const TableSlotProxy& b) { return a + static_cast<TValue>(b).asNumber(); }
+inline double operator-(double a, const TableSlotProxy& b) { return a - static_cast<TValue>(b).asNumber(); }
+inline double operator/(double a, const TableSlotProxy& b) { return a / static_cast<TValue>(b).asNumber(); }
 
 // ============================================================
 // END lua_table.hpp

@@ -169,6 +169,6 @@ int main() {
 
 MIT License
 
-Uses [luaparser](https://github.com/andfoy/luaparser) for Lua AST parsing.
+Uses [luaparser](https://github.com/boolangery/py-lua-parser) for Lua AST parsing.
 
 Developed by [@firstbober](https://github.com/firstbober)

@@ -548,15 +548,48 @@ class ExprGenerator(ASTVisitor):
     def visit_Table(self, node: astnodes.Table) -> str:
         """Generate C++ table constructor
 
-        For now, always returns NEW_TABLE macro for simplicity.
+        Handles Lua table constructors like:
+        - { a, b, c } - array part
+        - { x = 1, y = 2 } - hash part
+        - { a, x = 1, b } - mixed
 
         Args:
-            node: Table AST node
+            node: Table AST node with fields list
 
         Returns:
-            str: NEW_TABLE macro string
+            str: C++ expression that creates and initializes the table
         """
-        return "NEW_TABLE"
+        if not node.fields:
+            return "NEW_TABLE"
+
+        # Build table initialization as a lambda expression
+        # [=]() { TABLE t = NEW_TABLE; t[1] = a; t[2] = b; return t; }()
+        lines = []
+        lines.append("[=]() {")
+        lines.append("    TABLE t = NEW_TABLE;")
+
+        array_index = 1  # Lua arrays are 1-indexed
+        for field in node.fields:
+            value = self.generate(field.value)
+
+            if field.key is None:
+                # Array part: t[1] = value, t[2] = value, ...
+                lines.append(f"    t[NUMBER({array_index})] = {value};")
+                array_index += 1
+            else:
+                # Hash part: t["key"] = value or t[key] = value
+                key = self.generate(field.key)
+                if hasattr(field.key, 'id'):
+                    # Simple name key: t["key"] = value
+                    lines.append(f"    t[STRING(\"{field.key.id}\")] = {value};")
+                else:
+                    # Expression key: t[key] = value
+                    lines.append(f"    t[{key}] = {value};")
+
+        lines.append("    return t;")
+        lines.append("}()")
+
+        return "\n".join(lines)
 
     def visit_AnonymousFunction(self, node: astnodes.AnonymousFunction) -> str:
         """Generate C++ lambda expression for anonymous function"""

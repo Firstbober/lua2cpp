@@ -63,6 +63,7 @@ inline bool is_truthy(const TValue& t) {
 inline bool is_truthy(double d) { return d != 0; }
 inline bool is_truthy(bool b) { return b; }
 inline bool is_truthy(const char* s) { return s != nullptr && s[0] != '\0'; }
+inline bool is_truthy(const TableSlotProxy& p) { return is_truthy(static_cast<TValue>(p)); }
 
 // ---------- Print helpers ----------
 inline void print_single(const TValue& value) {
