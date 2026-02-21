@@ -54,13 +54,12 @@ def _run_gpp_syntax_check(cpp_file, timeout=60):
     Returns:
         Tuple of (exit_code, stdout, stderr)
     """
-    stub_dir = Path(__file__).parent.parent / "cpp" / "stub"
+    runtime_dir = Path(__file__).parent.parent / "cpp" / "runtime"
     cmd = [
         'g++',
         '-fsyntax-only',
         '-std=c++17',
-        f'-I{stub_dir}',
-        '-include', str(stub_dir / "l2c_runtime.hpp"),
+        f'-I{runtime_dir}',
         str(cpp_file)
     ]
 
@@ -149,9 +148,9 @@ class TestIntegration:
             tmp_file_path = tmp_file.name
 
         try:
-            stub_dir = Path(__file__).parent.parent / 'cpp' / 'stub'
+            runtime_dir = Path(__file__).parent.parent / 'cpp' / 'runtime'
             result = subprocess.run(
-                ['g++', '-fsyntax-only', '-std=c++17', f'-I{stub_dir}', '-include', str(stub_dir / 'l2c_runtime.hpp'), tmp_file_path],
+                ['g++', '-fsyntax-only', '-std=c++17', f'-I{runtime_dir}', tmp_file_path],
                 capture_output=True,
                 text=True
             )
@@ -208,9 +207,9 @@ class TestIntegration:
             tmp_file_path = tmp_file.name
 
         try:
-            stub_dir = Path(__file__).parent.parent / 'cpp' / 'stub'
+            runtime_dir = Path(__file__).parent.parent / 'cpp' / 'runtime'
             result = subprocess.run(
-                ['g++', '-fsyntax-only', '-std=c++17', f'-I{stub_dir}', '-include', str(stub_dir / 'l2c_runtime.hpp'), tmp_file_path],
+                ['g++', '-fsyntax-only', '-std=c++17', f'-I{runtime_dir}', tmp_file_path],
                 capture_output=True,
                 text=True
             )
