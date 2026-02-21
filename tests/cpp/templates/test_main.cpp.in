@@ -25,7 +25,7 @@ void call_module_init(Func func, TABLE arg) {
 int main(int argc, char* argv[]) {
     try {
         // Create arg table (Lua 1-indexed)
-        TABLE arg;
+        TABLE arg = TABLE::Table(LuaTable::create(argc, 0));
         for (int i = 1; i < argc; ++i) {
             arg[i] = TABLE(argv[i]);
         }

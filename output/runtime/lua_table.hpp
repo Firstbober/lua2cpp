@@ -79,7 +79,6 @@ public:
     explicit TValue(uint64_t raw) : bits(raw) {}
     TValue(double d) { std::memcpy(&bits, &d, 8); }
     TValue(int32_t i) : bits(TAG_INT | (uint32_t)i) {}
-    TValue(const char* s) { *this = String(s); }  // For compatibility with TABLE(argv[i])
 
     static TValue Nil()               { return TValue(TAG_NIL); }
     static TValue Boolean(bool b)     { return TValue(b ? TAG_TRUE : TAG_FALSE); }
