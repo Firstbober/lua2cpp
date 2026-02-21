@@ -306,6 +306,10 @@ class StmtGenerator(ASTVisitor):
         loop_body = self._generate_block(node.body)
         return f"while (l2c::is_truthy({cond_code})) {loop_body}"
 
+    def visit_Do(self, node: astnodes.Do) -> str:
+        body = self._generate_block(node.body)
+        return f"{{ {body} }}"
+
     def visit_Fornum(self, node: astnodes.Fornum) -> str:
         var_name = node.target.id
         var_type = "double"
