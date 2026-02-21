@@ -10,6 +10,7 @@
 
 #include "lua_table.hpp"
 #include <iostream>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -17,6 +18,8 @@
 #include <cstdio>
 #include <functional>
 #include <utility>
+#include <vector>
+#include <string>
 
 #ifdef assert
 #undef assert
@@ -431,6 +434,61 @@ inline void table_sort(TValue& t, std::function<bool(const TValue&, const TValue
     }
 }
 
+inline TValue table_remove(TValue& t, NUMBER pos = 1) {
+    if (!t.isTable()) return NIL;
+    LuaTable* tbl = t.toTable();
+    int idx = static_cast<int>(pos);
+    int len = static_cast<int>(tbl->length());
+    if (idx < 1 || idx > len) return NIL;
+    TValue removed = tbl->get(idx);
+    for (int i = idx; i < len; i++) {
+        tbl->set(i, tbl->get(i + 1));
+    }
+    tbl->set(len, NIL);
+    return removed;
+}
+
+inline std::vector<TValue> table_unpack(TValue& t, NUMBER first = 1, NUMBER last = -1) {
+    std::vector<TValue> result;
+    if (!t.isTable()) return result;
+    LuaTable* tbl = t.toTable();
+    int len = static_cast<int>(tbl->length());
+    int start = static_cast<int>(first);
+    int end = (last < 0) ? len : static_cast<int>(last);
+    for (int i = start; i <= end && i <= len; i++) {
+        result.push_back(tbl->get(i));
+    }
+    return result;
+}
+
+// ---------- I/O functions ----------
+inline TValue io_read(const char* format = "*a") {
+    static char buf[1048576];  // 1MB buffer
+    if (std::strcmp(format, "*a") == 0) {
+        std::string all;
+        char line[4096];
+        while (std::fgets(line, sizeof(line), stdin)) {
+            all += line;
+        }
+        std::strncpy(buf, all.c_str(), sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+    } else if (std::strcmp(format, "*l") == 0) {
+        if (!std::fgets(buf, sizeof(buf), stdin)) {
+            return NIL;
+        }
+        size_t len = std::strlen(buf);
+        if (len > 0 && buf[len - 1] == '\n') buf[len - 1] = '\0';
+    } else {
+        buf[0] = '\0';
+    }
+    return TValue::String(buf);
+}
+
+// ---------- OS functions ----------
+inline NUMBER os_clock() {
+    return static_cast<NUMBER>(std::clock()) / CLOCKS_PER_SEC;
+}
+
 inline std::pair<TValue, TValue> next(TValue& t, const TValue& key = NIL) {
     if (!t.isTable()) return {NIL, NIL};
     
@@ -580,6 +638,49 @@ namespace string_lib {
     
     inline const char* sub(const char* s, NUMBER i, NUMBER j = -1) {
         return l2c::string_sub(s, i, j);
+    }
+    
+    inline TValue upper(const TValue& s) {
+        if (!s.isString()) return s;
+        const char* str = static_cast<const char*>(s.toPtr());
+        static char buf[4096];
+        size_t len = std::strlen(str);
+        for (size_t i = 0; i < len && i < sizeof(buf) - 1; i++) {
+            buf[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(str[i])));
+        }
+        buf[len] = '\0';
+        return TValue::String(buf);
+    }
+
+    inline TValue gsub(const TValue& s, const TValue& pattern, const TValue& replacement) {
+        if (!s.isString()) return s;
+        const char* str = static_cast<const char*>(s.toPtr());
+        const char* pat = pattern.isString() ? static_cast<const char*>(pattern.toPtr()) : "";
+        const char* repl = replacement.isString() ? static_cast<const char*>(replacement.toPtr()) : "";
+        
+        static char buf[16384];
+        size_t pat_len = std::strlen(pat);
+        if (pat_len == 0) {
+            std::strncpy(buf, str, sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = '\0';
+            return TValue::String(buf);
+        }
+        
+        std::string result;
+        const char* pos = str;
+        while (*pos) {
+            const char* found = std::strstr(pos, pat);
+            if (!found) {
+                result += pos;
+                break;
+            }
+            result += std::string(pos, found - pos);
+            result += repl;
+            pos = found + pat_len;
+        }
+        std::strncpy(buf, result.c_str(), sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        return TValue::String(buf);
     }
 }
 
