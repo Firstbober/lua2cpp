@@ -1,119 +1,174 @@
-# Lua2C++ Transpiler
+# lua2cpp
 
-A maintainable, extensible transpiler from Lua 5.4 to C++.
+A Lua 5.4 to C++ transpiler that converts Lua source code into compilable C++17.
 
-## Project Overview
+## Installation
 
-Lua2C translates Lua 5.4 source code into C++ with the following key design principles:
+```bash
+pip install -e ".[dev]"
+```
 
-- **Modular Output**: One C file per module (not monolithic)
-- **Static Strings**: String pool approach with static C strings (no runtime allocation for literals)
-- **Debug Info**: Full debug information with #line directives for source mapping
-- **Error Handling**: Lua-compatible errors using setjmp/longjmp
-- **External Libraries**: VTable-based approach for love.*, math.*, string.* (not implemented in runtime)
-- **Metamethod Dispatch**: Always dispatch metamethods at runtime (no compile-time optimization for flexibility)
-- **Closure Support**: Static closure header (runtime/closure.h is non-generated)
+Requirements:
+- Python 3.10+
+- luaparser >= 4.0.0 (installed automatically)
+
+## Usage
+
+### Basic Transpilation
+
+```bash
+lua2cpp input.lua                    # Outputs to input.cpp
+lua2cpp input.lua -o output.cpp      # Specify output file
+lua2cpp input.lua --output-dir out/  # Specify output directory
+```
+
+### CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `input` | Input Lua file to transpile (required) |
+| `-o, --output` | Output C++ file name |
+| `--output-dir` | Output directory (default: current directory) |
+| `-v, --verbose` | Print verbose file generation details |
+| `--lib` | Generate as library (outputs `.hpp` header with forward declarations) |
+| `--header` | Generate `state.h` header with library API declarations |
+| `--convention MODULE=STYLE` | Set call convention for a module |
+| `--convention-file FILE` | Load call conventions from YAML config file |
+| `--runtime {table,lua_table}` | Select runtime type (default: table) |
+
+### Call Conventions
+
+Control how library functions are invoked:
+
+```bash
+lua2cpp input.lua --convention love=flat_nested
+lua2cpp input.lua --convention G=flat --convention math=namespace
+```
+
+Available styles:
+- `namespace` - Use C++ namespaces
+- `flat` - Flat function calls
+- `flat_nested` - Nested flat calls
+- `table` - Table-based dispatch (default)
+
+### Runtime Selection
+
+```bash
+lua2cpp input.lua --runtime table       # Default TABLE struct
+lua2cpp input.lua --runtime lua_table   # TValue/LuaTable runtime
+```
+
+## Project Structure
+
+```
+lua2cpp/
+├── lua2cpp/
+│   ├── cli/main.py              # CLI entry point
+│   ├── core/                    # Core infrastructure
+│   │   ├── ast_visitor.py       # AST visitor pattern
+│   │   ├── scope.py             # Scope management
+│   │   ├── symbol_table.py      # Symbol resolution
+│   │   ├── types.py             # Type system
+│   │   └── call_convention.py   # Call conventions
+│   ├── analyzers/               # Static analysis
+│   │   ├── type_resolver.py     # Type inference
+│   │   ├── function_registry.py # Function tracking
+│   │   └── y_combinator_detector.py
+│   └── generators/              # Code generation
+│       ├── cpp_emitter.py       # Main C++ emitter
+│       ├── expr_generator.py    # Expression codegen
+│       ├── stmt_generator.py    # Statement codegen
+│       └── header_generator.py  # Header generation
+├── tests/
+│   ├── python/                  # Python unit tests
+│   └── cpp/                     # C++ integration tests
+└── benchmarks/                   # Benchmark Lua files
+```
+
+## Design Principles
+
+- **Modular Output**: One C++ file per Lua module
+- **Static Strings**: String pool with static C strings (no runtime allocation for literals)
+- **Debug Info**: Full `#line` directives for source mapping
+- **Error Handling**: Lua-compatible errors via setjmp/longjmp
+- **Metamethod Dispatch**: Runtime dispatch for flexibility
+- **C++17 Target**: Modern C++ with templates and auto
 
 ### Naming Conventions
 
 - Modules: `_l2c__<dir>__<file>_export`
 - Functions: `_l2c__<dir>__<file>_<method>`
 
-## Current Status
-
-**Phase 1: Core Infrastructure** ✅ Complete
-- AST visitor with double-dispatch pattern
-- Translation context for scope, symbols, string pool
-- Scope management and symbol table
-- 100% test coverage
-
-**Phase 2: Code Generation** 🔄 In Progress
-- Expression generators (76% coverage)
-- Statement generators (88% coverage)
-- CLI with basic transpile_file() function
-
-**Phase 3-5**: Pending (runtime, module system, optimization)
-
-## Development & Contributing
-
-### Installation
-
-```bash
-# Install with development dependencies
-pip install -e ".[dev]"
-```
-
-### CLI Usage
-
-#### Single-File Mode
-
-Transpile a single Lua file to C++:
-
-```bash
-python -m lua2c.cli.main input.lua -o output.cpp
-```
-
-#### Project Mode
-
-Transpile a multi-module project with dependency resolution:
-
-```bash
-python -m lua2c.cli.main --main main.lua -o output_dir/
-python -m lua2c.cli.main --main path/to/main.lua --verbose
-```
-
-#### CLI Flags
-
-- `--main`: Treat input as project main file (transpile all modules)
-- `-o, --output`: Output file (single-file mode) or directory (project mode)
-- `--verbose, -v`: Enable verbose output (shows file discovery, dependency order)
+## Development
 
 ### Running Tests
 
 ```bash
-# Run all tests with coverage
-pytest
-
-# Run specific test file
-pytest tests/core/test_ast_visitor.py
-
-# Run with verbose output
-pytest -v
+pytest                              # Run all tests with coverage
+pytest tests/python/test_scope.py   # Run specific test file
+pytest -v                           # Verbose output
 ```
 
-### Code Formatting
+### Code Quality
 
 ```bash
-# Format code with Black
-black .
-
-# Check formatting without modifying
-black --check .
+black .                 # Format code
+black --check .         # Check formatting
+mypy lua2cpp            # Type checking
 ```
 
-### Type Checking
+## Examples
+
+```lua
+-- simple.lua
+local function add(a, b)
+    return a + b
+end
+
+print(add(5, 7))
+```
 
 ```bash
-# Run MyPy type checker
-mypy lua2c
+lua2cpp simple.lua --lib --output-dir output/
 ```
 
-### Test Coverage
+Generates:
+- `output/simple.cpp` - C++ implementation
+- `output/simple.hpp` - Header with forward declarations
 
-Goal: 100% test coverage for all implemented features. Current overall coverage: 88%.
+## C++ Integration
 
-## License & Credits
+Generated C++ requires a runtime library. See `tests/cpp/` for integration examples using CMake.
+
+Basic usage:
+
+```cpp
+#include "simple.hpp"
+#include "runtime/l2c_runtime.hpp"
+
+int main() {
+    simple_lua_State state;
+    state.print = &l2c::print;
+    _l2c__simple_export(&state);
+    return 0;
+}
+```
+
+## Current Status
+
+| Component | Status |
+|-----------|--------|
+| AST Visitor | Complete |
+| Scope/Symbol Management | Complete |
+| Expression Generation | In Progress |
+| Statement Generation | In Progress |
+| Runtime Library | Partial |
+| Module System | Planned |
+
+## License
 
 MIT License
 
-This project uses [luaparser](https://github.com/andfoy/luaparser) (>=4.0.0) for Lua AST parsing.
+Uses [luaparser](https://github.com/andfoy/luaparser) for Lua AST parsing.
 
 Developed by [@firstbober](https://github.com/firstbober)
-
-## Technical Notes
-
-- luaparser uses specific node types: AddOp, SubOp, MultOp (not wrapped in Binop class)
-- Binary/unary operators are their own node classes
-- String node .s attribute is bytes, decode via expr.s.decode()
-- Block/If/While constructors require body=[] parameter
-- Uses pytest with coverage reporting for testing
