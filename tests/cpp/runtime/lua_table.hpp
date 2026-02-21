@@ -928,6 +928,14 @@ struct TableSlotProxy {
     bool operator<=(int o) const { return static_cast<TValue>(*this).asNumber() <= o; }
     bool operator>=(int o) const { return static_cast<TValue>(*this).asNumber() >= o; }
     
+    // Comparison with another TableSlotProxy (disambiguates proxy-to-proxy comparisons)
+    bool operator<(TableSlotProxy o) const { return static_cast<TValue>(*this).asNumber() < static_cast<TValue>(o).asNumber(); }
+    bool operator>(TableSlotProxy o) const { return static_cast<TValue>(*this).asNumber() > static_cast<TValue>(o).asNumber(); }
+    bool operator<=(TableSlotProxy o) const { return static_cast<TValue>(*this).asNumber() <= static_cast<TValue>(o).asNumber(); }
+    bool operator>=(TableSlotProxy o) const { return static_cast<TValue>(*this).asNumber() >= static_cast<TValue>(o).asNumber(); }
+    bool operator==(TableSlotProxy o) const { return static_cast<TValue>(*this).asNumber() == static_cast<TValue>(o).asNumber(); }
+    bool operator!=(TableSlotProxy o) const { return static_cast<TValue>(*this).asNumber() != static_cast<TValue>(o).asNumber(); }
+    
     // Unary operators
     double operator-() const { return -static_cast<TValue>(*this).asNumber(); }
     bool operator!() const { return static_cast<TValue>(*this).isFalsy(); }
