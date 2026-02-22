@@ -140,6 +140,12 @@ public:
 
     // Assignment from TableSlotProxy to fix ambiguous overloads
     TValue& operator=(const TableSlotProxy& other);
+
+    // Comparison operators with TableSlotProxy (fixes heapsort ambiguity)
+    bool operator<(const TableSlotProxy& o) const;
+    bool operator>(const TableSlotProxy& o) const;
+    bool operator<=(const TableSlotProxy& o) const;
+    bool operator>=(const TableSlotProxy& o) const;
     
     // Arithmetic operators
     ALWAYS_INLINE TValue operator*(const TValue& o) const {
@@ -884,6 +890,14 @@ struct TableSlotProxy {
         return *this = TValue::Number(val);
     }
 
+    // Copy assignment: reads from rhs, writes through to lhs
+    TableSlotProxy& operator=(const TableSlotProxy& other) {
+        assert(tbl && "Cannot assign to nil table");
+        TValue val = static_cast<TValue>(other);  // Convert rhs to TValue
+        tbl->rawset(key, val);  // Write through to lhs's slot
+        return *this;
+    }
+
     // Support chained table access: proxy[k] where proxy is a table slot
     TableSlotProxy operator[](TValue k) const {
         TValue v = static_cast<TValue>(*this);
@@ -1020,9 +1034,23 @@ inline TValue& TValue::operator=(const TableSlotProxy& other) {
     return *this;
 }
 
+// Comparison operators with TableSlotProxy (fixes heapsort ambiguity)
+inline bool TValue::operator<(const TableSlotProxy& o) const {
+    return asNumber() < static_cast<TValue>(o).asNumber();
+}
+inline bool TValue::operator>(const TableSlotProxy& o) const {
+    return asNumber() > static_cast<TValue>(o).asNumber();
+}
+inline bool TValue::operator<=(const TableSlotProxy& o) const {
+    return asNumber() <= static_cast<TValue>(o).asNumber();
+}
+inline bool TValue::operator>=(const TableSlotProxy& o) const {
+    return asNumber() >= static_cast<TValue>(o).asNumber();
+}
+
 // ============================================================
 // Mixed TValue/double arithmetic operators (resolve ambiguity)
-// ============================================================
+// =============================================================
 inline double operator*(const TValue& a, double b) { return a.asNumber() * b; }
 inline double operator+(const TValue& a, double b) { return a.asNumber() + b; }
 inline double operator-(const TValue& a, double b) { return a.asNumber() - b; }
