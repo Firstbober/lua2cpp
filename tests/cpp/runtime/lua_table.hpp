@@ -1142,3 +1142,26 @@ namespace l2c {
 // ============================================================
 // END lua_table.hpp
 // ============================================================
+
+// Multi-return support for functions returning 2 values
+struct MultiReturn2 {
+    TValue first;
+    TValue second;
+    
+    MultiReturn2(TValue a, TValue b) : first(a), second(b) {}
+    
+    // Implicit conversion to TValue (returns first)
+    operator TValue() const { return first; }
+    
+    // Index access for unpacking
+    TValue operator[](int i) const { return i == 1 ? first : (i == 2 ? second : TValue::Nil()); }
+    TValue operator[](TValue k) const { 
+        int i = k.isInteger() ? k.toInteger() : (int)k.asNumber();
+        return i == 1 ? first : (i == 2 ? second : TValue::Nil());
+    }
+};
+
+// Helper to create multi-return
+inline MultiReturn2 multi_return(TValue a, TValue b) {
+    return MultiReturn2(a, b);
+}
