@@ -137,6 +137,9 @@ public:
     
     // Assignment from double (for transpiler compatibility)
     TValue& operator=(double d) { *this = Number(d); return *this; }
+
+    // Assignment from TableSlotProxy to fix ambiguous overloads
+    TValue& operator=(const TableSlotProxy& other);
     
     // Arithmetic operators
     ALWAYS_INLINE TValue operator*(const TValue& o) const {
@@ -1009,6 +1012,12 @@ inline TValue TValue::operator[](const TableSlotProxy& key) const {
     if (!isTable()) return Nil();
     TValue k = static_cast<TValue>(key);
     return toTable()->rawget(k);
+}
+
+// Assignment from TableSlotProxy (defined after TableSlotProxy is complete)
+inline TValue& TValue::operator=(const TableSlotProxy& other) {
+    *this = static_cast<TValue>(other);
+    return *this;
 }
 
 // ============================================================
