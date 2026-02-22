@@ -162,19 +162,37 @@ class StmtGenerator(ASTVisitor):
         """
         lines = []
 
-        for i, target_node in enumerate(node.targets):
-            init_expr = None
-            if i < len(node.values):
-                init_expr = node.values[i]
+        # For multi-assignment (swap patterns), save all RHS to temps first
+        if len(node.targets) > 1:
+            temps = []
+            for i, value in enumerate(node.values):
+                value_code = self._expr_gen.generate(value)
+                tmp_name = f"_l2c_tmp_{i}"
+                temps.append(tmp_name)
+                lines.append(f"auto {tmp_name} = {value_code};")
 
-            target_code = self._expr_gen.generate(target_node)
+            # Now assign temps to targets
+            for i, target_node in enumerate(node.targets):
+                target_code = self._expr_gen.generate(target_node)
+                if i < len(temps):
+                    lines.append(f"{target_code} = {temps[i]};")
+                else:
+                    lines.append(f"{target_code} = TABLE();")
+        else:
+            # Single assignment - original behavior
+            for i, target_node in enumerate(node.targets):
+                init_expr = None
+                if i < len(node.values):
+                    init_expr = node.values[i]
 
-            if init_expr is not None:
-                value_code = self._expr_gen.generate(init_expr)
-                if target_code != value_code:
-                    lines.append(f"{target_code} = {value_code};")
-            else:
-                lines.append(f"{target_code} = TABLE();")
+                target_code = self._expr_gen.generate(target_node)
+
+                if init_expr is not None:
+                    value_code = self._expr_gen.generate(init_expr)
+                    if target_code != value_code:
+                        lines.append(f"{target_code} = {value_code};")
+                else:
+                    lines.append(f"{target_code} = TABLE();")
 
         if len(lines) == 1:
             return lines[0]
