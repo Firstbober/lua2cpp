@@ -559,7 +559,31 @@ inline TValue debug_getinfo(NUMBER, const char*) {
 inline NUMBER math_min(NUMBER a, NUMBER b) { return std::fmin(a, b); }
 inline NUMBER math_max(NUMBER a, NUMBER b) { return std::fmax(a, b); }
 
+    // ---------- Metatable stub ----------
+    inline TValue setmetatable(TValue& t, const TValue& mt) {
+        return t;
+    }
+
+    // ---------- Load stubs ----------
+    inline TValue loadstring(const char*) { return NIL; }
+    inline TValue load(const char*) { return NIL; }
+
+    // ---------- OS exit ----------
+    inline void os_exit(NUMBER code = 0) {
+        std::exit(static_cast<int>(code));
+    }
+
+    // ---------- Pi constant ----------
+    constexpr NUMBER pi = 3.14159265358979323846;
+
 } // namespace l2c
+
+// ============================================================
+// jit namespace
+// ============================================================
+namespace jit {
+    inline TValue off() { return NIL; }
+}
 
 // ============================================================
 // io namespace
