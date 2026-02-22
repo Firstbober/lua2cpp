@@ -389,7 +389,8 @@ auto {var2} = _mr_{var1}[2];"""
                 return False
             body = block.body if isinstance(block.body, list) else [block.body]
             for stmt in body:
-                if hasattr(stmt, 'values') and len(stmt.values) == 2:
+                from luaparser import astnodes
+                if isinstance(stmt, astnodes.Return) and hasattr(stmt, 'values') and len(stmt.values) == 2:
                     return True
                 if hasattr(stmt, 'body') and stmt.body and has_multi_return(stmt.body):
                     return True
@@ -433,10 +434,10 @@ auto {var2} = _mr_{var1}[2];"""
                     table_prefixed = table_name
                 # Create registration that wraps the template function
                 registration = f'''
-    // Register {method_name} in {table_prefixed}
-    {table_prefixed}[STRING("{method_name}")] = l2c::make_function([](TValue a, TValue b) -> TValue {{
-        return {mangled_name}(a, b);
-    }});'''
+// Register {method_name} in {table_prefixed}
+{table_prefixed}[STRING("{method_name}")] = l2c::make_function([](TValue a, TValue b) -> TValue {{
+    return {mangled_name}(a, b);
+}});'''
         
         return f"{template_str}{return_type} {mangled_name}({params_str}) {body}{registration}"
 
@@ -491,7 +492,8 @@ auto {var2} = _mr_{var1}[2];"""
                 return False
             body = block.body if isinstance(block.body, list) else [block.body]
             for stmt in body:
-                if hasattr(stmt, 'values') and len(stmt.values) == 2:
+                from luaparser import astnodes
+                if isinstance(stmt, astnodes.Return) and hasattr(stmt, 'values') and len(stmt.values) == 2:
                     return True
                 if hasattr(stmt, 'body') and stmt.body and has_multi_return(stmt.body):
                     return True
