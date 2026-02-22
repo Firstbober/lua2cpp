@@ -20,6 +20,7 @@
 #include <new>
 #include <algorithm>
 #include <string>
+#include <functional>
 
 // ============================================================
 // Platform / SIMD helpers
@@ -76,6 +77,9 @@ public:
     static constexpr uint64_t POINTER_MASK  = 0x00007fffffffffffULL;
     static constexpr uint64_t TAG_MASK      = 0xffff800000000000ULL;
 
+    // Function type for callable TValue support
+    using FuncType = std::function<TValue(TValue, TValue)>;
+
     TValue() : bits(TAG_NIL) {}
     explicit TValue(uint64_t raw) : bits(raw) {}
     TValue(double d) { std::memcpy(&bits, &d, 8); }
@@ -96,18 +100,33 @@ public:
     static TValue LightUD(void* p) {
         return TValue(TAG_LIGHTUD | (reinterpret_cast<uint64_t>(p) & POINTER_MASK));
     }
+    static TValue Function(FuncType* p) {
+        return TValue(TAG_FUNCTION | (reinterpret_cast<uint64_t>(p) & POINTER_MASK));
+    }
 
     ALWAYS_INLINE bool isNil()     const { return bits == TAG_NIL; }
     ALWAYS_INLINE bool isInteger() const { return (bits & TAG_MASK) == TAG_INT; }
     ALWAYS_INLINE bool isNumber()  const { return (bits & NANBOX_BASE) != NANBOX_BASE; }
     ALWAYS_INLINE bool isString()  const { return (bits & TAG_MASK) == TAG_STRING; }
     ALWAYS_INLINE bool isTable()   const { return (bits & TAG_MASK) == TAG_TABLE; }
+    ALWAYS_INLINE bool isFunction() const { return (bits & TAG_MASK) == TAG_FUNCTION; }
     ALWAYS_INLINE bool isFalsy()   const { return bits == TAG_NIL || bits == TAG_FALSE; }
 
     ALWAYS_INLINE int32_t    toInteger() const { return (int32_t)(bits & 0xffffffff); }
     ALWAYS_INLINE double     toNumber()  const { double d; std::memcpy(&d, &bits, 8); return d; }
     ALWAYS_INLINE const void* toPtr()   const { return reinterpret_cast<const void*>(bits & POINTER_MASK); }
     ALWAYS_INLINE LuaTable*  toTable()  const { return reinterpret_cast<LuaTable*>(bits & POINTER_MASK); }
+    ALWAYS_INLINE FuncType* toFunction() const { 
+        return reinterpret_cast<FuncType*>(bits & POINTER_MASK); 
+    }
+
+    TValue call(TValue a, TValue b) const {
+        if (isFunction()) {
+            FuncType* f = toFunction();
+            if (f && *f) return (*f)(a, b);
+        }
+        return Nil();
+    }
     
     // Numeric value extraction (for arithmetic)
     ALWAYS_INLINE double asNumber() const {
@@ -969,6 +988,49 @@ struct TableSlotProxy {
     bool isString() const { return static_cast<TValue>(*this).isString(); }
     bool isFalsy() const { return static_cast<TValue>(*this).isFalsy(); }
     LuaTable* toTable() const { return static_cast<TValue>(*this).toTable(); }
+    
+    // Callable support - enables table["func"](args)
+    template<typename... Args>
+    TValue operator()(Args&&... args) const {
+        TValue func = static_cast<TValue>(*this);
+        if (func.isFunction()) {
+            // Support 0, 1, or 2 arguments
+            if constexpr (sizeof...(args) == 0) {
+                return func.call(TValue::Nil(), TValue::Nil());
+            } else if constexpr (sizeof...(args) == 1) {
+                // Get the single argument and convert to TValue
+                auto arg1 = std::get<0>(std::forward_as_tuple(args...));
+                return func.call(toTValue(arg1), TValue::Nil());
+            } else if constexpr (sizeof...(args) == 2) {
+                auto args_tuple = std::forward_as_tuple(args...);
+                return func.call(toTValue(std::get<0>(args_tuple)), toTValue(std::get<1>(args_tuple)));
+            }
+        }
+        return TValue::Nil();
+    }
+    
+private:
+    // Helper to convert various types to TValue for operator()
+    template<typename T>
+    static TValue toTValue(T&& val) {
+        if constexpr (std::is_same_v<std::decay_t<T>, TValue>) {
+            return val;
+        } else if constexpr (std::is_same_v<std::decay_t<T>, TableSlotProxy>) {
+            return static_cast<TValue>(val);
+        } else if constexpr (std::is_same_v<std::decay_t<T>, double>) {
+            return TValue::Number(val);
+        } else if constexpr (std::is_integral_v<std::decay_t<T>>) {
+            return TValue::Integer(static_cast<int32_t>(val));
+        } else if constexpr (std::is_same_v<std::decay_t<T>, const char*> || std::is_same_v<std::decay_t<T>, char*>) {
+            return TValue::String(val);
+        } else if constexpr (std::is_same_v<std::decay_t<T>, LuaTable*>) {
+            return TValue::Table(val);
+        } else {
+            return TValue::Nil();
+        }
+    }
+    
+public:
 };
 
 // ============================================================
@@ -1066,6 +1128,16 @@ inline double operator*(double a, const TableSlotProxy& b) { return a * static_c
 inline double operator+(double a, const TableSlotProxy& b) { return a + static_cast<TValue>(b).asNumber(); }
 inline double operator-(double a, const TableSlotProxy& b) { return a - static_cast<TValue>(b).asNumber(); }
 inline double operator/(double a, const TableSlotProxy& b) { return a / static_cast<TValue>(b).asNumber(); }
+
+// ============================================================
+// Helper to create callable TValue from lambda
+// ============================================================
+namespace l2c {
+    template<typename F>
+    TValue make_function(F&& f) {
+        return TValue::Function(new TValue::FuncType(std::forward<F>(f)));
+    }
+} // namespace l2c
 
 // ============================================================
 // END lua_table.hpp

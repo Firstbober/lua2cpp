@@ -384,7 +384,25 @@ class StmtGenerator(ASTVisitor):
         self.enter_function()
         body = self._generate_block(node.body, indent="    ")
         self.exit_function()
-        return f"{template_str}{return_type} {mangled_name}({params_str}) {body}"
+        
+        registration = ""
+        if isinstance(node.name, astnodes.Index):
+            if isinstance(node.name.value, astnodes.Name) and isinstance(node.name.idx, astnodes.Name):
+                table_name = node.name.value.id
+                method_name = node.name.idx.id
+                module_prefix = getattr(self._expr_gen, "_module_prefix", None)
+                if module_prefix:
+                    table_prefixed = f"{module_prefix}_{table_name}"
+                else:
+                    table_prefixed = table_name
+                # Create registration that wraps the template function
+                registration = f'''
+    // Register {method_name} in {table_prefixed}
+    {table_prefixed}[STRING("{method_name}")] = l2c::make_function([](TValue a, TValue b) -> TValue {{
+        return {mangled_name}(a, b);
+    }});'''
+        
+        return f"{template_str}{return_type} {mangled_name}({params_str}) {body}{registration}"
 
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
         """Generate C++ function definition for local function
@@ -530,4 +548,3 @@ class StmtGenerator(ASTVisitor):
         args = [self._expr_gen.generate(arg) for arg in node.args]
         args_str = ", ".join(args)
         return f"{func}({args_str});"
-
