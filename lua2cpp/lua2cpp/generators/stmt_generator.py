@@ -142,6 +142,15 @@ class StmtGenerator(ASTVisitor):
             else:
                 lines.append(f"TABLE {var_name};")
 
+        # Multi-return unpacking: local a, b = func()
+        if len(node.targets) == 2 and len(node.values) == 1:
+            var1 = node.targets[0].id
+            var2 = node.targets[1].id
+            expr_code = self._expr_gen.generate(node.values[0])
+            return f"""auto _mr_{var1} = {expr_code};
+auto {var1} = _mr_{var1};
+auto {var2} = _mr_{var1}[2];"""
+
         # If only one variable, return single line; otherwise return all lines
         if len(lines) == 1:
             return lines[0]
@@ -202,7 +211,7 @@ class StmtGenerator(ASTVisitor):
         """Generate C++ return statement
 
         Format: return <expr>; or return;
-        Handles multiple return values by taking the first one.
+        Handles multiple return values by wrapping in multi_return() for 2 values.
 
         Args:
             node: Return AST node with .exprs (list of expression nodes, can be empty)
@@ -211,14 +220,22 @@ class StmtGenerator(ASTVisitor):
             str: C++ return statement
         """
         # Return has .values (list of expressions, can be empty)
-        # For now, we only handle single return values or empty return
         if not node.values:
             return "return;"
 
-        # Take the first expression (Lua can return multiple values,
-        # but we only handle the first for now)
-        expr_code = self._expr_gen.generate(node.values[0])
-        return f"return {expr_code};"
+        if len(node.values) == 1:
+            # Single return value
+            expr_code = self._expr_gen.generate(node.values[0])
+            return f"return {expr_code};"
+        elif len(node.values) == 2:
+            # Multi-return: wrap in multi_return()
+            first_code = self._expr_gen.generate(node.values[0])
+            second_code = self._expr_gen.generate(node.values[1])
+            return f"return multi_return({first_code}, {second_code});"
+        else:
+            # More than 2 - just take first
+            expr_code = self._expr_gen.generate(node.values[0])
+            return f"return {expr_code};"
 
     def _normalize_block_body(self, block):
         """Normalize Block.body to a list for iteration.
@@ -364,6 +381,25 @@ class StmtGenerator(ASTVisitor):
         if type_info is not None:
             return_type = type_info.cpp_type()
         
+        # Check if function has multi-return statements
+        # If so, use auto to allow MultiReturn2 return type
+        def has_multi_return(block):
+            """Check if block contains return with 2+ values"""
+            if not hasattr(block, 'body'):
+                return False
+            body = block.body if isinstance(block.body, list) else [block.body]
+            for stmt in body:
+                if hasattr(stmt, 'values') and len(stmt.values) == 2:
+                    return True
+                if hasattr(stmt, 'body') and stmt.body and has_multi_return(stmt.body):
+                    return True
+                if hasattr(stmt, 'orelse') and stmt.orelse and has_multi_return(stmt.orelse):
+                    return True
+            return False
+        
+        if has_multi_return(node.body):
+            return_type = "auto"
+        
         template_params = []
         params = []
         param_idx = 1
@@ -449,8 +485,22 @@ class StmtGenerator(ASTVisitor):
         body = self._generate_block(node.body, indent="    ")
         self.exit_function()
 
+        # Check if function has multi-return statements
+        def has_multi_return(block):
+            if not hasattr(block, 'body'):
+                return False
+            body = block.body if isinstance(block.body, list) else [block.body]
+            for stmt in body:
+                if hasattr(stmt, 'values') and len(stmt.values) == 2:
+                    return True
+                if hasattr(stmt, 'body') and stmt.body and has_multi_return(stmt.body):
+                    return True
+                if hasattr(stmt, 'orelse') and stmt.orelse and has_multi_return(stmt.orelse):
+                    return True
+            return False
+        
         # Infer return type from function body
-        inferred_return_type = self._infer_return_type(node.body)
+        inferred_return_type = "auto" if has_multi_return(node.body) else self._infer_return_type(node.body)
 
         if template_params:
             return f"template<{template_params_str}>\n{inferred_return_type} {mangled_name}({params_str}) {body}"
