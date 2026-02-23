@@ -46,10 +46,24 @@ class ExprGenerator(ASTVisitor):
         # Module context for name mangling
         self._module_prefix: str = ""
         self._module_state: Set[str] = set()
+        # Function-local variable tracking for proper scoping
+        self._function_locals: Set[str] = set()
 
     def set_module_context(self, prefix: str, module_state: Set[str]) -> None:
         self._module_prefix = prefix
         self._module_state = module_state
+
+    def enter_function(self, local_names: Set[str] = None):
+        """Enter function scope with optional local variable names.
+
+        Args:
+            local_names: Set of local variable names to track.
+        """
+        self._function_locals = local_names if local_names else set()
+
+    def exit_function(self):
+        """Exit function scope, clear local variables."""
+        self._function_locals = set()
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from an expression node using double-dispatch
@@ -132,6 +146,10 @@ class ExprGenerator(ASTVisitor):
             str: Variable name as-is
         """
         name = node.id
+        # Check function-local variables first (they shadow module state)
+        if name in self._function_locals:
+            return name
+        # Then check module state
         if name in self._module_state:
             return f"{self._module_prefix}_{name}"
         return name

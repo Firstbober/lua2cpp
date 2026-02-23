@@ -632,6 +632,12 @@ class CppEmitter:
         # Generate module body statements
         body_statements = self._generate_module_body(chunk)
         lines.extend(body_statements)
+
+        # Emit table method registrations inside module_init
+        registrations = self._stmt_gen.get_table_method_registrations()
+        if registrations:
+            lines.append("")
+            lines.extend(registrations)
         lines.append("}")
 
         return "\n".join(lines)
@@ -871,9 +877,13 @@ class CppEmitter:
                                 if val.value.id in lib_names:
                                     is_lib_ref = True
 
-                        if not is_lib_ref:
+                        # Table constructors should be in module_state
+                        if isinstance(val, astnodes.Table):
                             module_state.add(target.id)
-                        # Always add to local_declared to prevent collection as implicit global
+                        elif not is_lib_ref:
+                            # Non-table, non-lib-ref LocalAssign targets should be in module_state
+                            # so they can be accessed by functions
+                            module_state.add(target.id)
                         local_declared.add(target.id)
 
         # 2. Collect implicit globals (Assign at module level, not already local)

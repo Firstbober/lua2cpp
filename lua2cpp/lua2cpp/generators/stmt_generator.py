@@ -43,6 +43,7 @@ class StmtGenerator(ASTVisitor):
         self._expr_gen = ExprGenerator(library_registry, stmt_gen=self, convention_registry=self._convention_registry)
         # Track whether we're inside a function body
         self._in_function = False
+        self._table_method_registrations: List[str] = []
 
     def set_module_context(self, prefix: str, module_state: Set) -> None:
         """Propagate module context to internal ExprGenerator"""
@@ -54,6 +55,8 @@ class StmtGenerator(ASTVisitor):
     def exit_function(self):
         self._in_function = False
 
+    def get_table_method_registrations(self) -> List[str]:
+        return self._table_method_registrations
     def generate(self, node: Any) -> str:
         """Generate C++ code from a statement node using double-dispatch
 
@@ -428,18 +431,32 @@ auto {var2} = _mr_{var1}[2];"""
                 table_name = node.name.value.id
                 method_name = node.name.idx.id
                 module_prefix = getattr(self._expr_gen, "_module_prefix", None)
-                if module_prefix:
+                module_state = getattr(self._expr_gen, "_module_state", set())
+
+                # Only mangle if the table is in module_state (not a local variable)
+                if module_prefix and table_name in module_state:
                     table_prefixed = f"{module_prefix}_{table_name}"
                 else:
                     table_prefixed = table_name
+                # Count parameters (excluding Varargs)
+                param_count = sum(1 for arg in node.args if not isinstance(arg, astnodes.Varargs))
+                
+                # Runtime expects exactly 2 args (TValue, TValue) -> TValue
+                # Pad with unused args if function has fewer parameters
+                lambda_params = "TValue arg0, TValue arg1"
+
+                # Generate function call arguments - only pass what function needs
+                call_args = ", ".join([f"arg{i}" for i in range(min(param_count, 2))])
+                
                 # Create registration that wraps the template function
                 registration = f'''
 // Register {method_name} in {table_prefixed}
-{table_prefixed}[STRING("{method_name}")] = l2c::make_function([](TValue a, TValue b) -> TValue {{
-    return {mangled_name}(a, b);
+{table_prefixed}[STRING("{method_name}")] = l2c::make_function([]({lambda_params}) -> TValue {{
+    return {mangled_name}({call_args});
 }});'''
-        
-        return f"{template_str}{return_type} {mangled_name}({params_str}) {body}{registration}"
+        if registration:
+            self._table_method_registrations.append(registration)
+        return f"{template_str}{return_type} {mangled_name}({params_str}) {body}"
 
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
         """Generate C++ function definition for local function
@@ -481,12 +498,42 @@ auto {var2} = _mr_{var1}[2];"""
         params_str = ", ".join(params)
         template_params_str = ", ".join([f"typename {p}" for p in template_params])
 
+        
+        # Collect local variable names for proper scoping
+        local_names = set()
+        body = self._normalize_block_body(node.body)
+        for stmt in body:
+            if isinstance(stmt, astnodes.LocalAssign):
+                for target in stmt.targets:
+                    if isinstance(target, astnodes.Name):
+                        local_names.add(target.id)
+        
+        # Pass local names to expr_generator for proper name mangling
+        self._expr_gen.enter_function(local_names)
         # Generate function body
         self.enter_function()
         body = self._generate_block(node.body, indent="    ")
         self.exit_function()
+        self._expr_gen.exit_function()
 
-        # Check if function has multi-return statements
+                # Check if function calls itself directly (recursive)
+        def is_recursive(block, func_name):
+            if not hasattr(block, 'body'):
+                return False
+            body = block.body if isinstance(block.body, list) else [block.body]
+            for stmt in body:
+                # Check for direct function calls
+                if hasattr(stmt, 'func') and hasattr(stmt.func, 'id'):
+                    if stmt.func.id == func_name:
+                        return True
+                # Recurse into nested blocks (if, while, etc.)
+                if hasattr(stmt, 'body') and is_recursive(stmt.body, func_name):
+                    return True
+                if hasattr(stmt, 'orelse') and stmt.orelse and is_recursive(stmt.orelse, func_name):
+                    return True
+            return False
+
+# Check if function has multi-return statements
         def has_multi_return(block):
             if not hasattr(block, 'body'):
                 return False
@@ -501,8 +548,10 @@ auto {var2} = _mr_{var1}[2];"""
                     return True
             return False
         
-        # Infer return type from function body
-        inferred_return_type = "auto" if has_multi_return(node.body) else self._infer_return_type(node.body)
+                # Infer return type from function body
+        # For recursive functions, C++ cannot deduce auto return type
+        # Use explicit TABLE type instead
+        inferred_return_type = "TABLE" if is_recursive(node.body, func_name) else ("auto" if has_multi_return(node.body) else self._infer_return_type(node.body))
 
         if template_params:
             return f"template<{template_params_str}>\n{inferred_return_type} {mangled_name}({params_str}) {body}"
