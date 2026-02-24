@@ -1,7 +1,7 @@
 [project]
-name = "lua2c"
+name = "lua2cpp"
 version = "0.1.0"
-description = "Lua 5.4 to C++ transpiler"
+description = "Lua 5.4 to C++ transpiler - Type Resolution System"
 requires-python = ">=3.10"
 dependencies = [
     "luaparser>=4.0.0",
@@ -11,31 +11,23 @@ dependencies = [
 dev = [
     "pytest>=9.0.0",
     "pytest-cov>=7.0.0",
-    "black>=26.0.0",
-    "mypy>=1.8.0",
 ]
+
+[project.scripts]
+lua2cpp = "lua2cpp.cli.main:main"
 
 [build-system]
 requires = ["setuptools>=68.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["lua2cpp"]
+where = ["."]
+include = ["lua2cpp*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=lua2cpp --cov-report=term-missing --cov-report=html"
-pythonpath = ["lua2cpp"]
-
-[tool.black]
-line-length = 100
-target-version = ['py310']
-
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
+addopts = "-v --cov=lua2cpp --cov-report=term-missing"
+pythonpath = ["."]
