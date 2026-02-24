@@ -148,7 +148,17 @@ public:
     operator double() const { return asNumber(); }
 
     // Total equality (same bits = same value, consistent with Lua rawequal)
-    ALWAYS_INLINE bool operator==(TValue o) const { return bits == o.bits; }
+    ALWAYS_INLINE bool operator==(TValue o) const {
+        // Fast path: same bits = same value
+        if (bits == o.bits) return true;
+        // String content comparison
+        if (isString() && o.isString()) {
+            const char* a = static_cast<const char*>(toPtr());
+            const char* b = static_cast<const char*>(o.toPtr());
+            return std::strcmp(a, b) == 0;
+        }
+        return false;
+    }
     ALWAYS_INLINE bool operator!=(TValue o) const { return bits != o.bits; }
     
     // Comparison with double (resolves ambiguity with implicit conversion)
@@ -260,6 +270,11 @@ namespace wyhash_impl {
     }
 } // namespace wyhash_impl
 
+// Hash string content (for non-interned strings)
+ALWAYS_INLINE uint32_t hashString(const char* s, size_t len) {
+    return (uint32_t)wyhash_impl::wyhash(s, len);
+}
+
 // ============================================================
 // Key hashing for TValue keys
 // ============================================================
@@ -273,18 +288,12 @@ ALWAYS_INLINE uint32_t hashTValue(TValue key) {
         return k;
     }
     if (key.isString()) {
-        // Hash the pointer — assumes interned strings (like Lua)
-        // For non-interned strings, hash the content instead
-        uint64_t p = key.bits & TValue::POINTER_MASK;
-        return (uint32_t)wyhash_impl::wymix(p, 0xdeadbeefcafe1234ULL);
+        // Hash string content (not pointer) for correct metamethod lookup
+        const char* s = static_cast<const char*>(key.toPtr());
+        return hashString(s, std::strlen(s));
     }
     // For all other types (doubles, pointers): hash the raw bits
     return (uint32_t)wyhash_impl::wymix(key.bits, 0x9e3779b97f4a7c15ULL);
-}
-
-// Hash string content (for non-interned strings)
-ALWAYS_INLINE uint32_t hashString(const char* s, size_t len) {
-    return (uint32_t)wyhash_impl::wyhash(s, len);
 }
 
 // ============================================================
