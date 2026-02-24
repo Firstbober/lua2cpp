@@ -1079,10 +1079,17 @@ inline TValue TValue::operator[](const std::string& key) const {
 inline TableSlotProxy TValue::operator[](const TableSlotProxy& key) {
     TValue k = static_cast<TValue>(key);
     if (k.isInteger()) return TableSlotProxy{ isTable() ? toTable() : nullptr, k };
-    if (k.isNumber()) return TableSlotProxy{ isTable() ? toTable() : nullptr, k };
+    if (k.isNumber()) {
+        double d = k.toNumber();
+        int32_t i = (int32_t)d;
+        if ((double)i == d)  /* Normalize to integer if whole number */
+            return TableSlotProxy{ isTable() ? toTable() : nullptr, Integer(i) };
+        return TableSlotProxy{ isTable() ? toTable() : nullptr, k };
+    }
     if (k.isString()) return TableSlotProxy{ isTable() ? toTable() : nullptr, k };
     return TableSlotProxy{ nullptr, k };
 }
+
 
 inline TValue TValue::operator[](const TableSlotProxy& key) const {
     if (!isTable()) return Nil();
