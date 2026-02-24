@@ -868,6 +868,11 @@ class CppEmitter:
         for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
             if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
                 for i, target in enumerate(stmt.targets):
+                    # Skip multi-return assignments: local a, b = func() should NOT go to module_state
+                    if len(stmt.targets) > 1:
+                        local_declared.add(target.id)
+                        continue
+                    
                     if hasattr(target, 'id'):
                         is_lib_ref = False
                         if hasattr(stmt, 'values') and i < len(stmt.values):

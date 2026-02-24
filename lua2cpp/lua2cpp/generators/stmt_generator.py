@@ -421,6 +421,12 @@ auto {var2} = _mr_{var1}[2];"""
             template_str = f"template<{template_params_str}>\n"
         
         params_str = ", ".join(params)
+        # Collect function parameters for proper scoping
+        local_names = set()
+        for arg in node.args:
+            if hasattr(arg, 'id'):
+                local_names.add(arg.id)
+        self._expr_gen.enter_function(local_names)
         self.enter_function()
         body = self._generate_block(node.body, indent="    ")
         self.exit_function()
@@ -501,6 +507,10 @@ auto {var2} = _mr_{var1}[2];"""
         
         # Collect local variable names for proper scoping
         local_names = set()
+        # Add function parameters to local_names
+        for arg in node.args:
+            if hasattr(arg, 'id'):
+                local_names.add(arg.id)
         body = self._normalize_block_body(node.body)
         for stmt in body:
             if isinstance(stmt, astnodes.LocalAssign):
