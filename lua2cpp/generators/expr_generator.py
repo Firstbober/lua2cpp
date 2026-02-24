@@ -256,7 +256,7 @@ class ExprGenerator(ASTVisitor):
             falsy = self.generate(node.right)
             if isinstance(node.right, astnodes.Number):
                 falsy = f"TABLE({falsy})"
-            return f"(l2c::is_truthy({cond}) ? ({truthy}) : ({falsy}))"
+            return f"(l2c::is_truthy({cond}) && l2c::is_truthy({truthy}) ? ({truthy}) : ({falsy}))"
         
         if self._is_library_function_reference(node.left):
             return self.generate(node.right)
