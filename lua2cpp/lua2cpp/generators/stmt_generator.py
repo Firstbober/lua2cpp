@@ -44,6 +44,7 @@ class StmtGenerator(ASTVisitor):
         # Track whether we're inside a function body
         self._in_function = False
         self._table_method_registrations: List[str] = []
+        self._fornum_counter = 0
 
     def set_module_context(self, prefix: str, module_state: Set) -> None:
         """Propagate module context to internal ExprGenerator"""
@@ -350,20 +351,23 @@ auto {var2} = _mr_{var1}[2];"""
 
     def visit_Fornum(self, node: astnodes.Fornum) -> str:
         var_name = node.target.id
-        var_type = "double"
         start_code = self._expr_gen.generate(node.start)
         stop_code = self._expr_gen.generate(node.stop)
+        
         if node.step is None:
             step_code = "1"
         elif isinstance(node.step, int):
             step_code = str(node.step)
         else:
             step_code = self._expr_gen.generate(node.step)
+        
         loop_body = self._generate_block(node.body)
-        init = f"{var_type} {var_name} = {start_code}"
-        cond = f"{var_name} <= {stop_code}"
-        incr = f"{var_name} += {step_code}"
-        return f"for ({init}; {cond}; {incr}) {loop_body}"
+        
+        # Extract bounds as doubles at loop entry (Lua semantics)
+        self._fornum_counter += 1
+        limit_var = f"_l2c_limit_{self._fornum_counter}"
+        
+        return f"double {limit_var} = detail::to_tvalue({stop_code}).asNumber();\nfor (double {var_name} = detail::to_tvalue({start_code}).asNumber(); {var_name} <= {limit_var}; {var_name} += {step_code}) {loop_body}"
 
     def visit_Function(self, node: astnodes.Function) -> str:
         # Handle both Name and Index (e.g., function Complex.conj() style)
