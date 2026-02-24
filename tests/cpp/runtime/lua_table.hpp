@@ -187,19 +187,11 @@ public:
     bool operator<=(const TableSlotProxy& o) const;
     bool operator>=(const TableSlotProxy& o) const;
     
-    // Arithmetic operators
-    ALWAYS_INLINE TValue operator*(const TValue& o) const {
-        return Number(asNumber() * o.asNumber());
-    }
-    ALWAYS_INLINE TValue operator+(const TValue& o) const {
-        return Number(asNumber() + o.asNumber());
-    }
-    ALWAYS_INLINE TValue operator-(const TValue& o) const {
-        return Number(asNumber() - o.asNumber());
-    }
-    ALWAYS_INLINE TValue operator/(const TValue& o) const {
-        return Number(asNumber() / o.asNumber());
-    }
+    // Arithmetic operators with metamethod dispatch (defined after get_metamethod)
+    ALWAYS_INLINE TValue operator*(const TValue& o) const;
+    ALWAYS_INLINE TValue operator+(const TValue& o) const;
+    ALWAYS_INLINE TValue operator-(const TValue& o) const;
+    ALWAYS_INLINE TValue operator/(const TValue& o) const;
     
     // Table access operators (defined after LuaTable)
     TableSlotProxy operator[](int32_t index);
@@ -921,6 +913,38 @@ inline std::optional<TValue> get_metamethod(TValue a, TValue b, const char* name
     return std::nullopt;
 }
 
+// ============================================================
+// TValue arithmetic operator definitions (after get_metamethod)
+// ============================================================
+ALWAYS_INLINE TValue TValue::operator*(const TValue& o) const {
+    if (isTable() || o.isTable()) {
+        auto mm = get_metamethod(*this, o, "__mul");
+        if (mm) return mm->call(*this, o);
+    }
+    return Number(asNumber() * o.asNumber());
+}
+ALWAYS_INLINE TValue TValue::operator+(const TValue& o) const {
+    if (isTable() || o.isTable()) {
+        auto mm = get_metamethod(*this, o, "__add");
+        if (mm) return mm->call(*this, o);
+    }
+    return Number(asNumber() + o.asNumber());
+}
+ALWAYS_INLINE TValue TValue::operator-(const TValue& o) const {
+    if (isTable() || o.isTable()) {
+        auto mm = get_metamethod(*this, o, "__sub");
+        if (mm) return mm->call(*this, o);
+    }
+    return Number(asNumber() - o.asNumber());
+}
+ALWAYS_INLINE TValue TValue::operator/(const TValue& o) const {
+    if (isTable() || o.isTable()) {
+        auto mm = get_metamethod(*this, o, "__div");
+        if (mm) return mm->call(*this, o);
+    }
+    return Number(asNumber() / o.asNumber());
+}
+
 
 // ============================================================
 // TableSlotProxy — enables correct read/write semantics for operator[]
@@ -975,11 +999,11 @@ struct TableSlotProxy {
         return (*this)[TValue::String(k)];
     }
     
-    // Arithmetic operators - convert to TValue and delegate
-    double operator+(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() + static_cast<TValue>(o).asNumber(); }
-    double operator-(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() - static_cast<TValue>(o).asNumber(); }
-    double operator*(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() * static_cast<TValue>(o).asNumber(); }
-    double operator/(const TableSlotProxy& o) const { return static_cast<TValue>(*this).asNumber() / static_cast<TValue>(o).asNumber(); }
+    // Arithmetic operators - delegate to TValue operators (enables metamethod dispatch)
+    TValue operator+(const TableSlotProxy& o) const { return static_cast<TValue>(*this) + static_cast<TValue>(o); }
+    TValue operator-(const TableSlotProxy& o) const { return static_cast<TValue>(*this) - static_cast<TValue>(o); }
+    TValue operator*(const TableSlotProxy& o) const { return static_cast<TValue>(*this) * static_cast<TValue>(o); }
+    TValue operator/(const TableSlotProxy& o) const { return static_cast<TValue>(*this) / static_cast<TValue>(o); }
     double operator+(double o) const { return static_cast<TValue>(*this).asNumber() + o; }
     double operator-(double o) const { return static_cast<TValue>(*this).asNumber() - o; }
     double operator*(double o) const { return static_cast<TValue>(*this).asNumber() * o; }

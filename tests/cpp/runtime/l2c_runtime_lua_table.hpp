@@ -566,8 +566,11 @@ inline TValue debug_getinfo(NUMBER, const char*) {
 inline NUMBER math_min(NUMBER a, NUMBER b) { return std::fmin(a, b); }
 inline NUMBER math_max(NUMBER a, NUMBER b) { return std::fmax(a, b); }
 
-    // ---------- Metatable stub ----------
+    // ---------- Metatable support ----------
 inline TValue setmetatable(TValue t, const TValue& mt) {
+        if (t.isTable() && mt.isTable()) {
+            t.toTable()->metatable = mt.toTable();
+        }
         return t;
     }
 
