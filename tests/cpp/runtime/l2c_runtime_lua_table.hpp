@@ -112,16 +112,23 @@ inline void io_write_single(const TValue& value) {
     print_single(value);
 }
 
-// ---------- Variadic print ----------
+// ---------- Variadic print with tab separators ----------
 template<typename... Args>
 void print(Args&&... args) {
-    (print_single(args), ...);
+    bool first = true;
+    auto print_with_sep = [&](auto&& a) {
+        if (!first) std::cout << '\t';
+        first = false;
+        print_single(a);
+    };
+    (print_with_sep(std::forward<Args>(args)), ...);
     std::cout << std::endl;
 }
 
 template<typename... Args>
 void io_write(Args&&... args) {
-    (io_write_single(args), ...);
+    // Lua's io.write concatenates arguments WITHOUT separators
+    (io_write_single(std::forward<Args>(args)), ...);
 }
 
 // ---------- Type conversion ----------

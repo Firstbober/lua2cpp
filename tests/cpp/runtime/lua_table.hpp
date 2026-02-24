@@ -132,6 +132,15 @@ public:
     ALWAYS_INLINE double asNumber() const {
         if (isNumber()) return toNumber();
         if (isInteger()) return (double)toInteger();
+        if (isString()) {
+            // Convert string to number (Lua semantics)
+            const char* s = static_cast<const char*>(toPtr());
+            char* end;
+            double d = std::strtod(s, &end);
+            if (end != s && *end == '\0') {
+                return d;
+            }
+        }
         return 0.0;
     }
     
@@ -143,6 +152,7 @@ public:
     ALWAYS_INLINE bool operator!=(TValue o) const { return bits != o.bits; }
     
     // Comparison with double (resolves ambiguity with implicit conversion)
+    ALWAYS_INLINE bool operator>=(double o) const { return asNumber() >= o; }
     ALWAYS_INLINE bool operator==(double d) const { return asNumber() == d; }
     ALWAYS_INLINE bool operator!=(double d) const { return asNumber() != d; }
     
