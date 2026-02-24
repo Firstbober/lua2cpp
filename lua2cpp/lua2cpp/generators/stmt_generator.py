@@ -388,7 +388,12 @@ auto {var2} = _mr_{var1}[2];"""
         self._fornum_counter += 1
         limit_var = f"_l2c_limit_{self._fornum_counter}"
         
-        return f"double {limit_var} = detail::to_tvalue({stop_code}).asNumber();\nfor (double {var_name} = detail::to_tvalue({start_code}).asNumber(); {var_name} <= {limit_var}; {var_name} += {step_code}) {loop_body}"
+        
+        # Determine comparison operator based on step direction
+        is_descending = step_code.startswith("-") or (step_code.lstrip("-").isdigit() and float(step_code) < 0)
+        cmp_op = ">=" if is_descending else "<="
+        
+        return f"double {limit_var} = detail::to_tvalue({stop_code}).asNumber();\nfor (double {var_name} = detail::to_tvalue({start_code}).asNumber(); {var_name} {cmp_op} {limit_var}; {var_name} += {step_code}) {loop_body}"
 
     def visit_Function(self, node: astnodes.Function) -> str:
         # Handle both Name and Index (e.g., function Complex.conj() style)
