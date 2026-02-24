@@ -1,11 +1,27 @@
-build
-generated
-*
+# Build artifacts
+build/
+
+# Generated transpiler output
+# (generated .cpp files that should be regenerated, not tracked)
+/generated/
+
+# Test binaries
+mandel_test
+*_test
+
+# Ignore everything by default
+/*
+
+# Whitelist specific patterns
 !*.cpp
 !CMakeLists.txt
 !.gitignore
-!templates
-!stub
-!runtime
-!lua
+!templates/
+!stub/
+!runtime/
+!lua/
 !README.md
+
+# But ignore specific generated .cpp files even though .cpp is whitelisted
+# These are auto-generated from lua/ sources
+/mandel.cpp
