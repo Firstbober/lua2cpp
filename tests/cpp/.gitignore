@@ -24,11 +24,7 @@ mandel_test
 
 # But ignore generated .cpp files even though .cpp is whitelisted
 # These are auto-generated from lua/ sources and should be regenerated
-/mandel.cpp
-/spectral-norm.cpp
-/spectral_norm.cpp
-/binary-trees.cpp
-/binary_trees.cpp
-/heapsort.cpp
-/sieve.cpp
-/simple.cpp
+# Match both underscore and dash versions of filenames
+/*.cpp
+!/generated/
+!*_main.cpp
