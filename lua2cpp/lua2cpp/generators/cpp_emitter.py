@@ -182,8 +182,11 @@ class CppEmitter:
             for var_name in sorted(self._module_state):
                 var_type = self.get_inferred_type(var_name)
                 cpp_type = self._get_cpp_type_name(var_type.kind)
-                # Exported symbols are non-static so other modules can use them
-                lines.append(f"{cpp_type} {self._module_prefix}_{var_name};")
+                # Initialize TABLE variables with NEW_TABLE
+                if cpp_type == "TABLE":
+                    lines.append(f"TABLE {self._module_prefix}_{var_name} = NEW_TABLE;")
+                else:
+                    lines.append(f"{cpp_type} {self._module_prefix}_{var_name};")
             lines.append("")
 
         # Phase 2: Generate forward declarations
@@ -629,15 +632,16 @@ class CppEmitter:
         for var_name in global_vars:
             lines.append(f"    TABLE {var_name};")
 
-        # Generate module body statements
-        body_statements = self._generate_module_body(chunk)
-        lines.extend(body_statements)
-
-        # Emit table method registrations inside module_init
+        # Emit table method registrations FIRST
+        # This ensures functions are registered before metatable setup references them
         registrations = self._stmt_gen.get_table_method_registrations()
         if registrations:
-            lines.append("")
             lines.extend(registrations)
+            lines.append("")
+
+        # Generate module body statements AFTER registrations
+        body_statements = self._generate_module_body(chunk)
+        lines.extend(body_statements)
         lines.append("}")
 
         return "\n".join(lines)
