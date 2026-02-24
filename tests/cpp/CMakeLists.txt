@@ -7,18 +7,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Use venv Python for transpiler
 set(PYTHON_VENV ${CMAKE_CURRENT_SOURCE_DIR}/../../.venv/bin/python)
 
-# Runtime library files
-set(RUNTIME_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/l2c_runtime.cpp
-)
-
-# Include directories
+# Include directories for new runtime (header-only)
 include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime
 )
-
-# Add runtime as a library
-add_library(lua2c_runtime ${RUNTIME_SOURCES})
 
 # Function to add a Lua test
 # LUA_STEM is the filename without extension (e.g., "spectral-norm" from "spectral-norm.lua")
@@ -63,7 +56,7 @@ function(add_lua_test TEST_NAME LUA_FILE MODULE_INIT_FUNC)
         ${CMAKE_SOURCE_DIR}/..
         ${GEN_DIR}
     )
-    target_link_libraries(${TEST_NAME}_test lua2c_runtime)
+    # New runtime is header-only, no linking needed
 endfunction()
 
 # Add tests for key benchmarks
