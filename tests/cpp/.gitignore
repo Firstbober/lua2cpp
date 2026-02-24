@@ -1,2 +1,11 @@
 build
 generated
+*
+!*.cpp
+!CMakeLists.txt
+!.gitignore
+!templates
+!stub
+!runtime
+!lua
+!README.md
