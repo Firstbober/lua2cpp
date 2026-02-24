@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <string>
 #include <functional>
+#include <optional>
 
 // ============================================================
 // Platform / SIMD helpers
@@ -899,6 +900,27 @@ public:
         return t;
     }
 };
+inline std::optional<TValue> get_metamethod(TValue a, TValue b, const char* name) {
+    // Try a's metatable first (Lua 5.4 precedence)
+    if (a.isTable()) {
+        if (LuaTable* mt = a.toTable()->metatable) {
+            TValue key = TValue::String(name);
+            TValue mm = mt->rawget(key);  // rawget, not __index
+            if (!mm.isNil()) return mm;
+        }
+    }
+    // Try b's metatable
+    if (b.isTable()) {
+        if (LuaTable* mt = b.toTable()->metatable) {
+            TValue key = TValue::String(name);
+            TValue mm = mt->rawget(key);  // rawget, not __index
+            if (!mm.isNil()) return mm;
+        }
+    }
+    // No metamethod found
+    return std::nullopt;
+}
+
 
 // ============================================================
 // TableSlotProxy — enables correct read/write semantics for operator[]
