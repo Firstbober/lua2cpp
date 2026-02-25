@@ -1036,8 +1036,6 @@ struct TableSlotProxy {
     double operator/(int o) const { return static_cast<TValue>(*this).asNumber() / o; }
     
     // Comparison operators
-    bool operator==(const TableSlotProxy& o) const { return static_cast<TValue>(*this).bits == static_cast<TValue>(o).bits; }
-    bool operator!=(const TableSlotProxy& o) const { return static_cast<TValue>(*this).bits != static_cast<TValue>(o).bits; }
     bool operator==(double o) const { return static_cast<TValue>(*this).asNumber() == o; }
     bool operator!=(double o) const { return static_cast<TValue>(*this).asNumber() != o; }
     bool operator==(int o) const { return static_cast<TValue>(*this).asNumber() == o; }
