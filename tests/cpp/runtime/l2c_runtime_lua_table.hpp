@@ -441,6 +441,49 @@ inline void table_sort(TValue& t, std::function<bool(const TValue&, const TValue
     }
 }
 
+// table.concat(t, sep, i, j) - concatenate table elements
+// table.concat(t, sep, i, j) - concatenate table elements
+inline TValue table_concat(const TValue& t, const TValue& sep, NUMBER first = 1, NUMBER last = -1) {
+    if (!t.isTable()) return TValue::String("");
+    LuaTable* tbl = t.toTable();
+    int len = static_cast<int>(tbl->length());
+    int start = static_cast<int>(first);
+    int end = (last < 0) ? len : static_cast<int>(last);
+    const char* sep_str = sep.isString() ? static_cast<const char*>(sep.toPtr()) : "";
+    
+    static char buf[16384];
+    buf[0] = '\0';
+    int pos = 0;
+    bool first_elem = true;
+    for (int i = start; i <= end && i <= len && pos < (int)sizeof(buf) - 100; i++) {
+        TValue val = tbl->get(i);
+        if (!val.isNil()) {
+            if (!first_elem && sep_str && sep_str[0] && pos < (int)sizeof(buf) - 1) {
+                int n = strlen(sep_str);
+                if (pos + n < (int)sizeof(buf)) { memcpy(buf + pos, sep_str, n); pos += n; }
+            }
+            first_elem = false;
+            if (val.isString()) {
+                const char* s = static_cast<const char*>(val.toPtr());
+                int n = strlen(s);
+                if (pos + n < (int)sizeof(buf)) { memcpy(buf + pos, s, n); pos += n; }
+            } else if (val.isNumber()) {
+                std::string s = std::to_string(val.toNumber());
+                if (pos + (int)s.size() < (int)sizeof(buf)) { memcpy(buf + pos, s.c_str(), s.size()); pos += s.size(); }
+            } else if (val.isInteger()) {
+                std::string s = std::to_string(val.toInteger());
+                if (pos + (int)s.size() < (int)sizeof(buf)) { memcpy(buf + pos, s.c_str(), s.size()); pos += s.size(); }
+            }
+        }
+    }
+    buf[pos] = '\0';
+    return TValue::String(buf);
+}
+
+// Overload for const char* separator
+inline TValue table_concat(const TValue& t, const char* sep = "", NUMBER first = 1, NUMBER last = -1) {
+    return table_concat(t, TValue::String(sep ? sep : ""), first, last);
+}
 inline TValue table_remove(TValue& t, NUMBER pos = 1) {
     if (!t.isTable()) return NIL;
     LuaTable* tbl = t.toTable();

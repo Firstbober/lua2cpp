@@ -419,8 +419,39 @@ class ExprGenerator(ASTVisitor):
                    'difftime': 'os_difftime', 'getenv': 'os_getenv', 'remove': 'os_remove',
                    'rename': 'os_rename', 'tmpname': 'os_tmpname'},
         }
-        func_name = lib_func_map.get(lib_name, {}).get(method_name, f"{lib_name}_{method_name}")
+        
+        # Use appropriate namespace based on library
         args_str = ", ".join(args) if args else ""
+        
+        # String library uses string_lib:: namespace (has TValue-aware implementations)
+        if lib_name == 'string':
+            method_map = {
+                'format': 'format', 'len': 'len', 'sub': 'sub',
+                'upper': 'upper', 'lower': 'lower', 'byte': 'byte',
+                'char': 'char_', 'rep': 'rep', 'find': 'find',
+                'gsub': 'gsub', 'match': 'match', 'gmatch': 'gmatch'
+            }
+            func_name = method_map.get(method_name, method_name)
+            return f"string_lib::{func_name}({args_str})"
+        
+        # Table, io, math, os libraries use l2c:: namespace
+        lib_func_map = {
+            'io': {'write': 'io_write', 'flush': 'io_flush', 'read': 'io_read'},
+            'math': {'sqrt': 'math_sqrt', 'abs': 'math_abs', 'floor': 'math_floor',
+                     'ceil': 'math_ceil', 'sin': 'math_sin', 'cos': 'math_cos',
+                     'tan': 'math_tan', 'log': 'math_log', 'exp': 'math_exp',
+                     'pow': 'math_pow', 'min': 'math_min', 'max': 'math_max',
+                     'random': 'math_random', 'randomseed': 'math_randomseed',
+                     'modf': 'math_modf', 'fmod': 'math_fmod', 'atan': 'math_atan',
+                     'asin': 'math_asin', 'acos': 'math_acos', 'deg': 'math_deg',
+                     'rad': 'math_rad', 'huge': 'math_huge'},
+            'table': {'unpack': 'table_unpack', 'remove': 'table_remove', 'sort': 'table_sort',
+                      'concat': 'table_concat', 'insert': 'table_insert', 'pack': 'table_pack'},
+            'os': {'clock': 'os_clock', 'time': 'os_time', 'date': 'os_date', 'exit': 'os_exit',
+                   'difftime': 'os_difftime', 'getenv': 'os_getenv', 'remove': 'os_remove',
+                   'rename': 'os_rename', 'tmpname': 'os_tmpname'},
+        }
+        func_name = lib_func_map.get(lib_name, {}).get(method_name, f"{lib_name}_{method_name}")
         return f"l2c::{func_name}({args_str})"
 
     def _generate_g_table_access(self, node: astnodes.Index) -> str:
