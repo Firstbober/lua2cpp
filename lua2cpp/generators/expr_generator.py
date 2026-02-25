@@ -344,12 +344,48 @@ class ExprGenerator(ASTVisitor):
             args_str = ", ".join(args) if args else ""
             return f"{func}({args_str})"
 
+    def _is_io_stdout_write(self, node: astnodes.Invoke) -> bool:
+        """Check if this is io.stdout:write(...) pattern.
+        
+        Args:
+            node: Invoke AST node
+            
+        Returns:
+            True if this is io.stdout:write, False otherwise
+        """
+        # Check if func is 'write'
+        if not isinstance(node.func, astnodes.Name) or node.func.id != 'write':
+            return False
+        
+        # Check if source is io.stdout (Index node)
+        if not isinstance(node.source, astnodes.Index):
+            return False
+        
+        source = node.source
+        # Check if it's io.stdout: value=Name("io"), idx=Name("stdout")
+        if not isinstance(source.value, astnodes.Name) or source.value.id != 'io':
+            return False
+        if not isinstance(source.idx, astnodes.Name) or source.idx.id != 'stdout':
+            return False
+        
+        return True
+
     def visit_Invoke(self, node: astnodes.Invoke) -> str:
         """Handle method calls like obj:method(args) as expressions.
         
         In Lua, obj:method(args) is sugar for obj.method(obj, args).
         For Invoke nodes: node.source = object, node.func = method name, node.args = arguments
+        
+        Special handling for:
+        - io.stdout:write(...) -> l2c::io_write(...)
+        - string methods -> string_lib::method(...)
         """
+        # Special case: io.stdout:write(...) -> l2c::io_write(...)
+        if self._is_io_stdout_write(node):
+            args = [self.generate(arg) for arg in node.args]
+            args_str = ", ".join(args) if args else ""
+            return f"l2c::io_write({args_str})"
+        
         # Known string methods that should use string_lib::
         STRING_METHODS = {'sub', 'find', 'gmatch', 'gsub', 'format', 'lower', 'upper', 
                          'len', 'rep', 'reverse', 'byte', 'char', 'match', 'dump'}
