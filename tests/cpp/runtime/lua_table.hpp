@@ -993,7 +993,10 @@ struct TableSlotProxy {
         return *this;
     }
 
-    // Accept callable types (function pointers, lambdas) and wrap as TValue::Function
+    // Accept callable types and wrap as TValue::Function
+    // Handles both:
+    //   - Functions matching FuncType signature (TValue(TValue, TValue))
+    //   - Simple 0-arg functions (e.g., double()) - wrapped for __index metamethod
     template<typename F, typename = std::enable_if_t<
         std::is_invocable_v<F> && 
         !std::is_same_v<std::decay_t<F>, TValue> &&
@@ -1001,7 +1004,21 @@ struct TableSlotProxy {
         !std::is_convertible_v<F, double>
     >>
     TableSlotProxy& operator=(F&& f) {
-        return *this = TValue::Function(new TValue::FuncType(std::forward<F>(f)));
+        if constexpr (std::is_invocable_r_v<TValue, F, TValue, TValue>) {
+            // Direct match for FuncType signature
+            return *this = TValue::Function(new TValue::FuncType(std::forward<F>(f)));
+        } else {
+            // Wrap simple functions (0-arg, etc.) for __index metamethod
+            auto wrapper = [f = std::forward<F>(f)](TValue, TValue) -> TValue {
+                if constexpr (std::is_same_v<std::invoke_result_t<F>, void>) {
+                    f();
+                    return TValue::Nil();
+                } else {
+                    return TValue::Number(static_cast<double>(f()));
+                }
+            };
+            return *this = TValue::Function(new TValue::FuncType(std::move(wrapper)));
+        }
     }
 
     // Support chained table access: proxy[k] where proxy is a table slot

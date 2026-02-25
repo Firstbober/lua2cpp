@@ -721,6 +721,13 @@ namespace string_lib {
     inline NUMBER len(const char* s) {
         return static_cast<NUMBER>(std::strlen(s));
     }
+
+    inline NUMBER len(const TValue& s) {
+        if (s.isString()) {
+            return static_cast<NUMBER>(std::strlen(static_cast<const char*>(s.toPtr())));
+        }
+        return l2c::get_length(s);
+    }
     
     inline const char* sub(const char* s, NUMBER i, NUMBER j = -1) {
         return l2c::string_sub(s, i, j);
