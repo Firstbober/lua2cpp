@@ -43,6 +43,9 @@ class ExprGenerator(ASTVisitor):
         self._stmt_gen = stmt_gen
         self._convention_registry = convention_registry or CallConventionRegistry()
 
+        # Context flag for table.sort comparator lambda generation
+        self._in_table_sort_context = False
+
         # Module context for name mangling
         self._module_prefix: str = ""
         self._module_state: Set[str] = set()
@@ -289,16 +292,39 @@ class ExprGenerator(ASTVisitor):
         operand = self.generate(node.operand)
         return f"(!{operand})"
 
+    def _is_table_sort_call(self, node: astnodes.Call) -> bool:
+        """Check if this is a call to table.sort (or l2c::table_sort)"""
+        # Check for table.sort pattern
+        if isinstance(node.func, astnodes.Index):
+            if isinstance(node.func.value, astnodes.Name) and isinstance(node.func.idx, astnodes.Name):
+                if node.func.value.id == 'table' and node.func.idx.id == 'sort':
+                    return True
+        # Check for direct l2c::table_sort or table_sort call
+        if isinstance(node.func, astnodes.Name):
+            if node.func.id == 'table_sort':
+                return True
+        return False
+
     def visit_Call(self, node: astnodes.Call) -> str:
         func = self.generate(node.func)
         # Mangle 'main' function call to avoid C++ ::main conflict
         func = "_l2c_main" if func == "main" else func
+        
+        # Check if this is a table.sort call - set context flag for lambda generation
+        is_table_sort = self._is_table_sort_call(node)
+        if is_table_sort:
+            self._in_table_sort_context = True
+        
         args = []
         for i, arg in enumerate(node.args):
             generated = self.generate(arg)
             if generated is None:
                 raise TypeError(f"Cannot generate code for argument {i} of type {type(arg).__name__} in Call to {func}")
             args.append(generated)
+        
+        # Clear the context flag after generating args
+        if is_table_sort:
+            self._in_table_sort_context = False
 
         # Check if this is a call to a global library function (e.g., print, tonumber)
         if self._is_global_function_call(node):
@@ -655,19 +681,30 @@ class ExprGenerator(ASTVisitor):
 
     def visit_AnonymousFunction(self, node: astnodes.AnonymousFunction) -> str:
         """Generate C++ lambda expression for anonymous function"""
-        params = []
-        for arg in node.args:
-            if hasattr(arg, 'id'):
-                params.append(f"const auto& {arg.id}")
-            else:
-                params.append("const auto& arg")
-
-        params_str = ", ".join(params)
-
-        return_type = "auto"
-        type_info = ASTAnnotationStore.get_type(node)
-        if type_info is not None:
-            return_type = type_info.cpp_type()
+        # Check if we're in a table.sort context - use concrete types for comparator
+        if self._in_table_sort_context:
+            # Use concrete types for table.sort comparator: const TValue& params, bool return
+            params = []
+            for arg in node.args:
+                if hasattr(arg, 'id'):
+                    params.append(f"const TValue& {arg.id}")
+                else:
+                    params.append("const TValue& arg")
+            params_str = ", ".join(params)
+            return_type = "bool"
+        else:
+            # Generic lambda: use auto for flexibility
+            params = []
+            for arg in node.args:
+                if hasattr(arg, 'id'):
+                    params.append(f"const auto& {arg.id}")
+                else:
+                    params.append("const auto& arg")
+            params_str = ", ".join(params)
+            return_type = "auto"
+            type_info = ASTAnnotationStore.get_type(node)
+            if type_info is not None:
+                return_type = type_info.cpp_type()
 
         if self._stmt_gen is None:
             body_str = "    /* Anonymous function body - stmt_gen not available */"

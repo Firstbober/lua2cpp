@@ -46,6 +46,8 @@ class StmtGenerator(ASTVisitor):
         self._table_method_registrations: List[str] = []
         self._fornum_counter = 0
         self._forin_counter = 0
+        # Track current function's return type for bare return handling
+        self._current_function_return_type: str = ""
 
     def set_module_context(self, prefix: str, module_state: Set) -> None:
         """Propagate module context to internal ExprGenerator"""
@@ -236,6 +238,9 @@ auto {var2} = _mr_{var1}[2];"""
         """
         # Return has .values (list of expressions, can be empty)
         if not node.values:
+            # For non-void functions, bare return should return NIL
+            if self._current_function_return_type and self._current_function_return_type != "void":
+                return "return NIL;"
             return "return;"
 
         if len(node.values) == 1:
@@ -448,7 +453,11 @@ auto {var2} = _mr_{var1}[2];"""
                 local_names.add(arg.id)
         self._expr_gen.enter_function(local_names)
         self.enter_function()
+        # Track the current function's return type for bare return handling
+        inferred_return_type = self._infer_return_type(node.body)
+        self._current_function_return_type = inferred_return_type
         body = self._generate_block(node.body, indent="    ")
+        self._current_function_return_type = ""
         self.exit_function()
         
         registration = ""
@@ -538,15 +547,7 @@ auto {var2} = _mr_{var1}[2];"""
                     if isinstance(target, astnodes.Name):
                         local_names.add(target.id)
         
-        # Pass local names to expr_generator for proper name mangling
-        self._expr_gen.enter_function(local_names)
-        # Generate function body
-        self.enter_function()
-        body = self._generate_block(node.body, indent="    ")
-        self.exit_function()
-        self._expr_gen.exit_function()
-
-                # Check if function calls itself directly (recursive)
+        # Check if function calls itself directly (recursive)
         def is_recursive(block, func_name):
             if not hasattr(block, 'body'):
                 return False
@@ -563,7 +564,7 @@ auto {var2} = _mr_{var1}[2];"""
                     return True
             return False
 
-# Check if function has multi-return statements
+        # Check if function has multi-return statements
         def has_multi_return(block):
             if not hasattr(block, 'body'):
                 return False
@@ -578,10 +579,21 @@ auto {var2} = _mr_{var1}[2];"""
                     return True
             return False
         
-                # Infer return type from function body
+        # Infer return type from function body
         # For recursive functions, C++ cannot deduce auto return type
         # Use explicit TABLE type instead
         inferred_return_type = "TABLE" if is_recursive(node.body, func_name) else ("auto" if has_multi_return(node.body) else self._infer_return_type(node.body))
+
+        # Pass local names to expr_generator for proper name mangling
+        self._expr_gen.enter_function(local_names)
+        # Generate function body
+        self.enter_function()
+        # Track the current function's return type for bare return handling
+        self._current_function_return_type = inferred_return_type
+        body = self._generate_block(node.body, indent="    ")
+        self._current_function_return_type = ""
+        self.exit_function()
+        self._expr_gen.exit_function()
 
         if template_params:
             return f"template<{template_params_str}>\n{inferred_return_type} {mangled_name}({params_str}) {body}"
@@ -781,8 +793,7 @@ while ({table_expr}.toTable()->next({key_var}, {val_var})) {loop_body}"""
                 
                 return f"{cpp_lib}::{method_name}({args_str});"
         
-        # Fallback for other invoke patterns
-        func = self._expr_gen.generate(node.func)
-        args = [self._expr_gen.generate(arg) for arg in node.args]
-        args_str = ", ".join(args)
-        return f"{func}({args_str});"
+        # Fallback for other invoke patterns - delegate to expr_generator
+        # This handles string methods (gsub, sub, etc.) correctly
+        expr_result = self._expr_gen.generate(node)
+        return f"{expr_result};"
