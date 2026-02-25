@@ -3,7 +3,7 @@ build/
 
 # Generated transpiler output
 # (generated .cpp files that should be regenerated, not tracked)
-/generated/
+generated/
 
 # Test binaries
 mandel_test
@@ -26,5 +26,4 @@ mandel_test
 # These are auto-generated from lua/ sources and should be regenerated
 # Match both underscore and dash versions of filenames
 /*.cpp
-!/generated/
 !*_main.cpp

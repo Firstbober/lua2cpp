@@ -886,9 +886,10 @@ class CppEmitter:
                                 if val.value.id in lib_names:
                                     is_lib_ref = True
 
-                        # Table constructors should be in module_state
+                        # Table constructors should NOT be in module_state
+                        # They should be generated as local variables instead
                         if isinstance(val, astnodes.Table):
-                            module_state.add(target.id)
+                            pass  # Skip - don't add to module_state
                         elif not is_lib_ref:
                             # Non-table, non-lib-ref LocalAssign targets should be in module_state
                             # so they can be accessed by functions

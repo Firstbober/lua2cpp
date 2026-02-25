@@ -129,12 +129,14 @@ class StmtGenerator(ASTVisitor):
                     not self._in_function
                 )
 
+                # Determine if this is a table initialization
+                is_table_init = isinstance(init_expr, astnodes.Table)
+
                 # If module-level assignment to module state var, generate assignment to static
                 if is_module_state_var:
                     mangled_name = f"{self._expr_gen._module_prefix}_{var_name}"
                     # For TABLE variables with table constructor, set fields instead of replacing
                     # Check both explicit TABLE type and table constructor expression
-                    is_table_init = isinstance(init_expr, astnodes.Table)
                     if (var_type == "TABLE" or is_table_init) and is_table_init:
                         # Generate field assignments to existing table
                         if hasattr(init_expr, 'fields') and init_expr.fields:
@@ -162,6 +164,9 @@ class StmtGenerator(ASTVisitor):
                     # Generate lambda wrapper: [](auto... args) { return <expr_code>(args...); }
                     lambda_wrapper = f"[](auto... args) {{ return {expr_code}(args...); }}"
                     lines.append(f"{var_type} {var_name} = {lambda_wrapper};")
+                elif is_table_init:
+                    # Generate table constructor: TABLE name = lambda() { TABLE t = NEW_TABLE; ... return t; }();
+                    lines.append(f"{var_type} {var_name} = {expr_code};")
                 else:
                     lines.append(f"{var_type} {var_name} = {expr_code};")
             else:
