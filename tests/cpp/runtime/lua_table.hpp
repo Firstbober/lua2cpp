@@ -181,6 +181,17 @@ public:
     // Assignment from TableSlotProxy to fix ambiguous overloads
     TValue& operator=(const TableSlotProxy& other);
 
+    // Accept callable types (function pointers, lambdas) and wrap as TValue::Function
+    template<typename F, typename = std::enable_if_t<
+        std::is_invocable_v<F> && 
+        !std::is_same_v<std::decay_t<F>, TValue> &&
+        !std::is_convertible_v<F, double>
+    >>
+    TValue& operator=(F&& f) {
+        *this = Function(new FuncType(std::forward<F>(f)));
+        return *this;
+    }
+
     // Comparison operators with TableSlotProxy (fixes heapsort ambiguity)
     bool operator<(const TableSlotProxy& o) const;
     bool operator>(const TableSlotProxy& o) const;
@@ -980,6 +991,17 @@ struct TableSlotProxy {
         TValue val = static_cast<TValue>(other);  // Convert rhs to TValue
         tbl->rawset(key, val);  // Write through to lhs's slot
         return *this;
+    }
+
+    // Accept callable types (function pointers, lambdas) and wrap as TValue::Function
+    template<typename F, typename = std::enable_if_t<
+        std::is_invocable_v<F> && 
+        !std::is_same_v<std::decay_t<F>, TValue> &&
+        !std::is_same_v<std::decay_t<F>, TableSlotProxy> &&
+        !std::is_convertible_v<F, double>
+    >>
+    TableSlotProxy& operator=(F&& f) {
+        return *this = TValue::Function(new TValue::FuncType(std::forward<F>(f)));
     }
 
     // Support chained table access: proxy[k] where proxy is a table slot
