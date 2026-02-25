@@ -346,7 +346,10 @@ class TypeResolver:
         for i, (target, value) in enumerate(zip(stmt.targets, stmt.values)):
             if isinstance(target, astnodes.Name):
                 value_type = self._infer_expression(value)
-                self.inferred_types[target.id] = value_type
+                # Don't change type from TABLE to something else - TABLE (TValue) can hold any value
+                existing_type = self.inferred_types.get(target.id)
+                if existing_type is None or existing_type.kind != TypeKind.TABLE:
+                    self.inferred_types[target.id] = value_type
             elif isinstance(target, astnodes.Index):
                 self._infer_expression(target.value)
                 self._infer_expression(target.idx)
@@ -379,6 +382,12 @@ class TypeResolver:
             return type_info
         elif isinstance(expr, astnodes.TrueExpr) or isinstance(expr, astnodes.FalseExpr):
             type_info = Type(TypeKind.BOOLEAN, is_constant=True)
+            ASTAnnotationStore.set_type(expr, type_info)
+            return type_info
+        elif isinstance(expr, astnodes.Nil):
+            # nil should be typed as TABLE (TValue) since that's the only type
+            # that can hold nil values in the lua2c runtime
+            type_info = Type(TypeKind.TABLE, is_constant=True)
             ASTAnnotationStore.set_type(expr, type_info)
             return type_info
         elif isinstance(expr, astnodes.Name):

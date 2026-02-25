@@ -873,7 +873,27 @@ class CppEmitter:
             if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
                 for i, target in enumerate(stmt.targets):
                     # Skip multi-return assignments: local a, b = func() should NOT go to module_state
+                    # Skip multi-return function calls: local a, b = func() should NOT go to module_state
+                    # But scalar multi-assignments: local x,y = 1,2 SHOULD be tracked
+                    # Skip multi-return function calls: local a, b = func() should NOT go to module_state
+                    # But scalar multi-assignments: local x,y = 1,2 SHOULD be tracked
                     if len(stmt.targets) > 1:
+                        # Check if this is a multi-return function call
+                        is_multi_return = False
+                        is_lib_ref = False
+                        if hasattr(stmt, 'values') and i < len(stmt.values):
+                            val = stmt.values[i]
+                            # If first value is a function call, it's multi-return
+                            is_multi_return = type(val).__name__ == "Call"
+                            # Check for library reference like math.random
+                            if hasattr(val, 'value') and hasattr(val.value, 'id'):
+                                lib_names = {'math', 'io', 'string', 'table', 'os'}
+                                if val.value.id in lib_names:
+                                    is_lib_ref = True
+                        
+                        if not is_multi_return and not is_lib_ref:
+                            # Scalar multi-assignment: local x,y = 1,2 - track these
+                            module_state.add(target.id)
                         local_declared.add(target.id)
                         continue
                     

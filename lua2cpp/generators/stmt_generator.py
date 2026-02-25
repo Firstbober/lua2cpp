@@ -45,6 +45,7 @@ class StmtGenerator(ASTVisitor):
         self._in_function = False
         self._table_method_registrations: List[str] = []
         self._fornum_counter = 0
+        self._forin_counter = 0
 
     def set_module_context(self, prefix: str, module_state: Set) -> None:
         """Propagate module context to internal ExprGenerator"""
@@ -371,10 +372,6 @@ auto {var2} = _mr_{var1}[2];"""
         loop_body = self._generate_block(node.body)
         return f"while (l2c::is_truthy({cond_code})) {loop_body}"
 
-    def visit_Do(self, node: astnodes.Do) -> str:
-        body = self._generate_block(node.body)
-        return f"{{ {body} }}"
-
     def visit_Fornum(self, node: astnodes.Fornum) -> str:
         var_name = node.target.id
         start_code = self._expr_gen.generate(node.start)
@@ -387,7 +384,10 @@ auto {var2} = _mr_{var1}[2];"""
         else:
             step_code = self._expr_gen.generate(node.step)
         
+        # Add loop variable to function locals so body uses local, not module state
+        self._expr_gen._function_locals.add(var_name)
         loop_body = self._generate_block(node.body)
+        self._expr_gen._function_locals.discard(var_name)
         
         # Extract bounds as doubles at loop entry (Lua semantics)
         self._fornum_counter += 1
@@ -398,7 +398,8 @@ auto {var2} = _mr_{var1}[2];"""
         is_descending = step_code.startswith("-") or (step_code.lstrip("-").isdigit() and float(step_code) < 0)
         cmp_op = ">=" if is_descending else "<="
         
-        return f"double {limit_var} = detail::to_tvalue({stop_code}).asNumber();\nfor (double {var_name} = detail::to_tvalue({start_code}).asNumber(); {var_name} {cmp_op} {limit_var}; {var_name} += {step_code}) {loop_body}"
+        start_var = f"_l2c_start_{self._fornum_counter}"
+        return f"double {start_var} = detail::to_tvalue({start_code}).asNumber();\ndouble {limit_var} = detail::to_tvalue({stop_code}).asNumber();\nfor (double {var_name} = {start_var}; {var_name} {cmp_op} {limit_var}; {var_name} += {step_code}) {loop_body}"
 
     def visit_Function(self, node: astnodes.Function) -> str:
         # Handle both Name and Index (e.g., function Complex.conj() style)
@@ -629,7 +630,114 @@ auto {var2} = _mr_{var1}[2];"""
         return f"do {body} while (!l2c::is_truthy({cond}));"
 
     def visit_Forin(self, node: astnodes.Forin) -> str:
-        return "// for-in loop not implemented"
+        """Generate C++ for-in loop from Lua for-in statement
+        
+        Handles pairs() and ipairs() iterators:
+        - for k, v in pairs(t) do ... end
+        - for i, v in ipairs(t) do ... end
+        
+        Args:
+            node: Forin AST node with .targets (list of Name nodes),
+                  .iter (list of iterator expressions), .body (Block node)
+        
+        Returns:
+            str: C++ for-in loop code
+        """
+        # Extract iterator call info
+        # node.iter is a list, typically containing a single Call node
+        if not node.iter or len(node.iter) == 0:
+            return "/* for-in: empty iterator */"
+        
+        iter_call = node.iter[0]
+        
+        # Check if it's a call to pairs() or ipairs()
+        is_pairs = False
+        is_ipairs = False
+        table_expr = None
+        
+        if isinstance(iter_call, astnodes.Call):
+            func = iter_call.func
+            # Check if func is a Name node with id 'pairs' or 'ipairs'
+            if isinstance(func, astnodes.Name):
+                if func.id == 'pairs':
+                    is_pairs = True
+                elif func.id == 'ipairs':
+                    is_ipairs = True
+                # Get table expression from args
+                if iter_call.args and len(iter_call.args) > 0:
+                    table_expr = self._expr_gen.generate(iter_call.args[0])
+        
+        # Get target variable names
+        targets = [t.id for t in node.targets]
+        
+        # Generate loop body
+        # Add loop variables to function locals so body uses local, not module state
+        for target in targets:
+            if target != '_':
+                self._expr_gen._function_locals.add(target)
+        loop_body = self._generate_block(node.body)
+        for target in targets:
+            if target != '_':
+                self._expr_gen._function_locals.discard(target)
+        
+        # Increment counter for unique variable names
+        self._forin_counter += 1
+        counter = self._forin_counter
+        
+        if is_pairs:
+            # pairs(t) - iterate all key-value pairs
+            key_var = f"_l2c_forin_key_{counter}"
+            val_var = f"_l2c_forin_val_{counter}"
+            
+            # Generate variable assignments from iterator
+            var_assigns = []
+            if len(targets) >= 1 and targets[0] != '_':
+                var_assigns.append(f"auto {targets[0]} = {key_var};")
+            if len(targets) >= 2 and targets[1] != '_':
+                var_assigns.append(f"auto {targets[1]} = {val_var};")
+            
+            # Prepend assignments to loop body
+            if var_assigns:
+                assigns_str = "\n    " + "\n    ".join(var_assigns)
+                # Insert assignments after opening brace
+                loop_body = loop_body.replace("{\n", "{" + assigns_str + "\n", 1)
+            
+            return f"""TValue {key_var} = TValue::Nil();
+TValue {val_var};
+while ({table_expr}.toTable()->next({key_var}, {val_var})) {loop_body}"""
+        
+        elif is_ipairs:
+            # ipairs(t) - iterate array indices 1, 2, 3... until nil
+            idx_var = f"_l2c_forin_idx_{counter}"
+            val_var = f"_l2c_forin_val_{counter}"
+            
+            # Generate variable assignments from iterator
+            var_assigns = []
+            if len(targets) >= 1 and targets[0] != '_':
+                var_assigns.append(f"auto {targets[0]} = TValue::Integer({idx_var});")
+            if len(targets) >= 2 and targets[1] != '_':
+                var_assigns.append(f"auto {targets[1]} = {val_var};")
+            
+            # Build body with assignments
+            body_lines = ["    " + line for line in loop_body.split("\n")]
+            body_content = "\n".join(body_lines)
+            
+            if var_assigns:
+                assigns_str = "\n        ".join(var_assigns)
+                assigns_block = f"\n        {assigns_str}"
+            else:
+                assigns_block = ""
+            
+            return f"""for (int32_t {idx_var} = 1; ; {idx_var}++) {{
+    TValue {val_var} = {table_expr}.toTable()->rawget(TValue::Integer({idx_var}));
+    if ({val_var}.isNil()) break;{assigns_block}
+{body_content}
+}}"""
+        
+        else:
+            # Fallback for unknown iterators
+            return f"/* for-in: unsupported iterator */"
+
 
     def visit_Break(self, node: astnodes.Break) -> str:
         return "break;"

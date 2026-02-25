@@ -716,6 +716,13 @@ namespace string_lib {
         buf[sizeof(buf) - 1] = '\0';
         return TValue::String(buf);
     }
+
+    inline TValue find(const TValue& s, const TValue& pattern, NUMBER init = 1) {
+        if (!s.isString()) return NIL;
+        const char* str = static_cast<const char*>(s.toPtr());
+        const char* pat = pattern.isString() ? static_cast<const char*>(pattern.toPtr()) : "";
+        return l2c::string_find(str, pat, init);
+    }
 }
 
 // ============================================================

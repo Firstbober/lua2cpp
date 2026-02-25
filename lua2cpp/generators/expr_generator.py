@@ -451,9 +451,9 @@ class ExprGenerator(ASTVisitor):
 
         parts.reverse()
         if len(parts) == 1:
-            return 'G' + parts[0]  # G[0] or G["key"]
+            return 'G[' + parts[0] + ']'  # G[0] or G["key"]
         else:
-            return 'G' + '["' + '"]["'.join(parts[:-1]) + f'"]{parts[-1]}'
+            return 'G[' + ']['.join(parts) + ']'  # G["A"]["B"]
 
 
 
