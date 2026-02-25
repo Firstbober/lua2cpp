@@ -14,6 +14,7 @@ mandel_test
 
 # Whitelist specific patterns
 !*.cpp
+!*.md
 !CMakeLists.txt
 !.gitignore
 !templates/
