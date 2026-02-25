@@ -188,3 +188,61 @@ luajit lua/spectral-norm.lua 100
 3. **Complex/Won't fix**:
    - k_nucleotide has 5+ interrelated issues
    - scimark requires LuaJIT FFI - recommend creating Lua 5.3 compatible version
+
+---
+
+## Session Update: 2026-02-25 (Session 2)
+
+### Test Status Summary (Updated)
+
+| Status | Count | Change |
+|--------|-------|--------|
+| PASS | 28 | +2 |
+| BUILD_FAIL | 10 | -2 |
+| NO_CPP | 3 | - |
+| **Total** | **41** | +3 |
+
+### Fixes Applied This Session
+
+1. **test_convention_flat** ✅
+   - Added `TABLE G = NEW_TABLE;` to main file
+   - Fixed linker error for undefined reference to `G`
+
+2. **Global function namespace** ✅
+   - Added `l2c::` prefix for Lua built-in functions (loadstring, load, print, tonumber, etc.)
+   - Fixed double-prefix bug in visit_Call
+
+3. **Variable redeclaration** ✅
+   - Fixed `_collect_global_variables` to check for duplicates
+   - Prevents `TABLE seq; TABLE seq;` errors
+
+4. **mandel.lua** ✅
+   - Added table constructors to module_state for file-scope access
+   - Fixed `'Complex' was not declared` error
+   - Note: Output mismatch (25500 vs 2652) is a separate logic bug
+
+5. **test_nil_basic** ✅
+   - Fixed nil type inference
+   - Variables initialized with `nil` now typed as TABLE
+
+### Remaining BUILD_FAIL (10 tests)
+
+| Test | Root Cause | Effort |
+|------|------------|--------|
+| fasta | Type conversion (TValue vs const char*) | Medium |
+| fixpoint_fact | Y-combinator (f(f) circular types) | **Won't Fix** |
+| k_nucleotide | Function pointer to TValue conversion | Medium |
+| qt | Multiple issues (E scope, return statements) | High |
+| regex_dna | gsub iterator unsupported | Medium |
+| scimark | LuaJIT-specific (jit, FFI, require) | **Won't Fix** |
+| test_convention_flat_nested | Lambda to TValue conversion | Medium |
+| heapsort_simple | NO_CPP (duplicate) | Ignore |
+| n_body_simple | NO_CPP (duplicate) | Ignore |
+| spectral_norm_simple | NO_CPP (duplicate) | Ignore |
+
+### Commits This Session
+
+```
+3ea8931 fix(transpiler): multiple fixes for build failures
+a58dd04 fix(transpiler): add l2c:: prefix for global Lua functions
+```
