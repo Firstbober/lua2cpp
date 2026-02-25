@@ -852,7 +852,8 @@ class CppEmitter:
                     target_type = type(target).__name__
                     if target_type == "Name" and hasattr(target, 'id'):
                         # Skip if already declared via LocalAssign
-                        if target.id not in local_declared:
+                        # Skip if already declared via LocalAssign or already in global_vars
+                        if target.id not in local_declared and target.id not in global_vars:
                             global_vars.append(target.id)
         return global_vars
 
@@ -906,10 +907,10 @@ class CppEmitter:
                                 if val.value.id in lib_names:
                                     is_lib_ref = True
 
-                        # Table constructors should NOT be in module_state
-                        # They should be generated as local variables instead
+                        # Table constructors should be in module_state so they're
+                        # declared at file scope for template functions that reference them
                         if isinstance(val, astnodes.Table):
-                            pass  # Skip - don't add to module_state
+                            module_state.add(target.id)
                         elif not is_lib_ref:
                             # Non-table, non-lib-ref LocalAssign targets should be in module_state
                             # so they can be accessed by functions

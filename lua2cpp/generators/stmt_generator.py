@@ -136,26 +136,10 @@ class StmtGenerator(ASTVisitor):
                 # If module-level assignment to module state var, generate assignment to static
                 if is_module_state_var:
                     mangled_name = f"{self._expr_gen._module_prefix}_{var_name}"
-                    # For TABLE variables with table constructor, set fields instead of replacing
-                    # Check both explicit TABLE type and table constructor expression
-                    if (var_type == "TABLE" or is_table_init) and is_table_init:
-                        # Generate field assignments to existing table
-                        if hasattr(init_expr, 'fields') and init_expr.fields:
-                            for field in init_expr.fields:
-                                if hasattr(field, 'key') and field.key:
-                                    # Extract key string
-                                    key = field.key
-                                    if isinstance(key, str):
-                                        key_str = key
-                                    elif hasattr(key, 'id'):
-                                        key_str = key.id
-                                    elif hasattr(key, 'value'):
-                                        key_str = str(key.value)
-                                    else:
-                                        key_str = str(key)
-                                    # Generate field assignment
-                                    value_code = self._expr_gen.generate(field.value) if field.value else "nil"
-                                    lines.append(f"{mangled_name}[STRING(\"{key_str}\")] = {value_code};")
+                    if is_table_init:
+                        # For table constructors, assign the lambda wrapper result
+                        # This handles all cases: empty tables, array fields, hash fields
+                        lines.append(f"{mangled_name} = {expr_code};")
                     elif is_library_ref:
                         lambda_wrapper = f"[](auto... args) {{ return {expr_code}(args...); }}"
                         lines.append(f"{mangled_name} = {lambda_wrapper};")
