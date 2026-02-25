@@ -152,6 +152,15 @@ class ExprGenerator(ASTVisitor):
         # Then check module state
         if name in self._module_state:
             return f"{self._module_prefix}_{name}"
+        # Check for known global functions that need l2c:: prefix
+        # These are Lua built-in functions that exist in the l2c namespace
+        global_functions = {'loadstring', 'load', 'print', 'tostring', 'tonumber', 
+                            'type', 'pairs', 'ipairs', 'next', 'error', 'assert',
+                            'pcall', 'xpcall', 'rawget', 'rawset', 'rawequal', 'rawlen',
+                            'setmetatable', 'getmetatable', 'select', 'unpack', 'require',
+                            'collectgarbage', 'getfenv', 'setfenv', 'gcinfo'}
+        if name in global_functions:
+            return f"l2c::{name}"
         return name
 
     def visit_AddOp(self, node: astnodes.AddOp) -> str:
@@ -295,6 +304,10 @@ class ExprGenerator(ASTVisitor):
         if self._is_global_function_call(node):
             # Global library functions are in l2c namespace and don't need state parameter
             args_str = ", ".join(args) if args else ""
+            # Global library functions are in l2c namespace and don't need state parameter
+            # Check if func already has l2c:: prefix (from visit_Name)
+            if func.startswith("l2c::"):
+                return f"{func}({args_str})"
             return f"l2c::{func}({args_str})"
         elif self._is_library_method_call(node):
             # Library method calls like io.write, string.format, math.sqrt

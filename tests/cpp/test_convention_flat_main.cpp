@@ -4,6 +4,7 @@
 #include <exception>
 // Include the .cpp directly (which includes the appropriate runtime)
 #include "test_convention_flat.cpp"
+TABLE G = NEW_TABLE;
 
 // Detect if test_convention_flat_module_init takes a TABLE argument using SFINAE
 template<typename T, typename = void>
