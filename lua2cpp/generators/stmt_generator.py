@@ -524,6 +524,45 @@ auto {var2} = _mr_{var1}[2];"""
         
         return f"{template_str}\n{return_type} {func_name}({params_str}) {body}"
 
+    def _generate_fewer_arg_overloads(
+        self,
+        func_name: str,
+        template_params: list[str],   # e.g. ["a1_t", "a2_t", "a3_t"]
+        params: list[str],             # e.g. ["a1_t a1", "a2_t a2", "a3_t a3"]
+        return_type: str,
+    ) -> str:
+        """
+        Generate overloads for 0..(N-1) arguments.
+        Missing args are filled with NIL (TValue::Nil()).
+        Each overload forwards to the full N-arg primary function.
+        """
+        overloads = []
+        n = len(params)
+
+        for i in range(1, n):  # i = number of provided args (1, ..., N-1), skip 0-arg
+            # Extract just the parameter names from "type name" strings
+            param_names = [p.split()[-1] for p in params[:i]]
+            
+            # Fill missing args with NIL
+            missing = ["NIL"] * (n - i)
+            forward_args = param_names + missing
+            forward_call = f"{func_name}({', '.join(forward_args)})"
+            
+            if return_type == "void":
+                body = f"{{ {forward_call}; }}"
+            else:
+                body = f"{{ return {forward_call}; }}"
+
+            # i-arg: template with i type params
+            tp = [f"typename {template_params[j]}" for j in range(i)]
+            ps = ", ".join(params[:i])
+            overloads.append(
+                f"template<{', '.join(tp)}>\n"
+                f"{return_type} {func_name}({ps}) {body}"
+            )
+
+        return "\n\n".join(overloads)
+
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
         """Generate C++ function definition for local function
 
@@ -640,13 +679,19 @@ auto {var2} = _mr_{var1}[2];"""
         # (for template deduction) and then called with any number of args
         if template_params:
             template_param_decls = [f"typename {p}" for p in template_params]
-            overload = self._generate_variadic_overload(
+            fewer = self._generate_fewer_arg_overloads(
+                func_name=mangled_name,
+                template_params=template_params,
+                params=params,
+                return_type=inferred_return_type
+            )
+            variadic = self._generate_variadic_overload(
                 func_name=mangled_name,
                 template_params=template_param_decls,
                 params=params,
                 return_type=inferred_return_type
             )
-            return f"{main_func}\n\n{overload}"
+            return f"{main_func}\n\n{fewer}\n\n{variadic}"
 
         return main_func
 
