@@ -1274,3 +1274,27 @@ struct MultiReturn2 {
 inline MultiReturn2 multi_return(TValue a, TValue b) {
     return MultiReturn2(a, b);
 }
+
+// Arithmetic operators for MultiReturn2 - operate on first value (for area calculations etc.)
+inline TValue operator+(const MultiReturn2& a, const MultiReturn2& b) { return a.first + b.first; }
+inline TValue operator-(const MultiReturn2& a, const MultiReturn2& b) { return a.first - b.first; }
+inline TValue operator*(const MultiReturn2& a, const MultiReturn2& b) { return a.first * b.first; }
+inline TValue operator/(const MultiReturn2& a, const MultiReturn2& b) { return a.first / b.first; }
+inline TValue operator+(const MultiReturn2& a, double b) { return a.first + b; }
+inline TValue operator-(const MultiReturn2& a, double b) { return a.first - b; }
+inline TValue operator*(const MultiReturn2& a, double b) { return a.first * b; }
+inline TValue operator/(const MultiReturn2& a, double b) { return a.first / b; }
+inline TValue operator+(double a, const MultiReturn2& b) { return a + b.first; }
+inline TValue operator-(double a, const MultiReturn2& b) { return a - b.first; }
+inline TValue operator*(double a, const MultiReturn2& b) { return a * b.first; }
+inline TValue operator/(double a, const MultiReturn2& b) { return a / b.first; }
+
+// Additional operators for TValue + MultiReturn2
+inline TValue operator+(const TValue& a, const MultiReturn2& b) { return a + b.first; }
+inline TValue operator-(const TValue& a, const MultiReturn2& b) { return a - b.first; }
+inline TValue operator*(const TValue& a, const MultiReturn2& b) { return a * b.first; }
+inline TValue operator/(const TValue& a, const MultiReturn2& b) { return a / b.first; }
+inline TValue operator+(const MultiReturn2& a, const TValue& b) { return a.first + b; }
+inline TValue operator-(const MultiReturn2& a, const TValue& b) { return a.first - b; }
+inline TValue operator*(const MultiReturn2& a, const TValue& b) { return a.first * b; }
+inline TValue operator/(const MultiReturn2& a, const TValue& b) { return a.first / b; }

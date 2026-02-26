@@ -4,7 +4,7 @@ Generates C++ code from Lua AST expression nodes.
 Implements double-dispatch pattern for literal and name expressions.
 """
 
-from typing import Any, Optional, Set, TYPE_CHECKING
+from typing import Any, Optional, Set, TYPE_CHECKING, Dict
 from ..core.ast_visitor import ASTVisitor
 from ..core.library_registry import LibraryFunctionRegistry as _LibraryFunctionRegistry
 from ..core.call_convention import CallConventionRegistry, CallConvention, flatten_index_chain_parts, get_root_module
@@ -43,6 +43,10 @@ class ExprGenerator(ASTVisitor):
         self._stmt_gen = stmt_gen
         self._convention_registry = convention_registry or CallConventionRegistry()
 
+        # Track maximum call-site argument counts per function name.
+        # This will be populated during visit_Call and later used by overload decisions.
+        self._call_site_arg_counts: Dict[str, int] = {}
+
         # Context flag for table.sort comparator lambda generation
         self._in_table_sort_context = False
 
@@ -51,12 +55,13 @@ class ExprGenerator(ASTVisitor):
         self._module_state: Set[str] = set()
         # Function-local variable tracking for proper scoping
         self._function_locals: Set[str] = set()
+        self._template_functions: Set[str] = set()
 
     def set_module_context(self, prefix: str, module_state: Set[str]) -> None:
         self._module_prefix = prefix
         self._module_state = module_state
 
-    def enter_function(self, local_names: Set[str] = None):
+    def enter_function(self, local_names: Optional[Set[str]] = None):
         """Enter function scope with optional local variable names.
 
         Args:
@@ -67,6 +72,12 @@ class ExprGenerator(ASTVisitor):
     def exit_function(self):
         """Exit function scope, clear local variables."""
         self._function_locals = set()
+
+    def record_template_function(self, name: str) -> None:
+        self._template_functions.add(name)
+
+    def is_template_function(self, name: str) -> bool:
+        return name in self._template_functions
 
     def generate(self, node: Any) -> str:
         """Generate C++ code from an expression node using double-dispatch
@@ -306,7 +317,9 @@ class ExprGenerator(ASTVisitor):
         return False
 
     def visit_Call(self, node: astnodes.Call) -> str:
-        func = self.generate(node.func)
+        # Generate the function name for the call (before potential mangling)
+        raw_func_name = self.generate(node.func)
+        func = raw_func_name
         # Mangle 'main' function call to avoid C++ ::main conflict
         func = "_l2c_main" if func == "main" else func
         
@@ -317,10 +330,25 @@ class ExprGenerator(ASTVisitor):
         
         args = []
         for i, arg in enumerate(node.args):
-            generated = self.generate(arg)
+            # Check if this argument is a template function that needs wrapping
+            if isinstance(arg, astnodes.Name):
+                arg_name = arg.id
+                # Mangle 'main' to '_l2c_main' for consistency in the generated code
+                mangled_arg = "_l2c_main" if arg_name == "main" else arg_name
+                if self.is_template_function(arg_name):  # Check original name for registration
+                    # Wrap template function in lambda for template deduction
+                    generated = f"[&](auto&&... args) {{ return {mangled_arg}(args...); }}"
+                else:
+                    generated = self.generate(arg)
+            else:
+                generated = self.generate(arg)
+            
             if generated is None:
                 raise TypeError(f"Cannot generate code for argument {i} of type {type(arg).__name__} in Call to {func}")
             args.append(generated)
+        # Track call site arg count for this function using the pre-mangled name
+        if raw_func_name not in self._call_site_arg_counts or len(node.args) > self._call_site_arg_counts[raw_func_name]:
+            self._call_site_arg_counts[raw_func_name] = len(node.args)
         
         # Clear the context flag after generating args
         if is_table_sort:
@@ -343,6 +371,10 @@ class ExprGenerator(ASTVisitor):
             # Regular function calls don't include state parameter
             args_str = ", ".join(args) if args else ""
             return f"{func}({args_str})"
+
+    def get_max_call_args(self, func_name: str) -> int:
+        """Get the maximum arg count seen for a function."""
+        return self._call_site_arg_counts.get(func_name, 0)
 
     def _is_io_stdout_write(self, node: astnodes.Invoke) -> bool:
         """Check if this is io.stdout:write(...) pattern.
@@ -534,21 +566,21 @@ class ExprGenerator(ASTVisitor):
         current = node
 
         while current is not None:
-            if isinstance(current.value, astnodes.Name):
-                if current.value.id == "G" and isinstance(current.idx, astnodes.Name):
+            if isinstance(current.value, astnodes.Name):  # type: ignore[attr-defined]
+                if current.value.id == "G" and isinstance(current.idx, astnodes.Name):  # type: ignore[attr-defined]
                     parts.append(f'"{current.idx.id}"')
-                elif isinstance(current.idx, astnodes.Name):
+                elif isinstance(current.idx, astnodes.Name):  # type: ignore[attr-defined]
                     parts.append(f'"{current.idx.id}"')
-                elif isinstance(current.idx, astnodes.Number):
+                elif isinstance(current.idx, astnodes.Number):  # type: ignore[attr-defined]
                     parts.append(f"{current.idx.n}")
-                elif isinstance(current.idx, astnodes.String):
+                elif isinstance(current.idx, astnodes.String):  # type: ignore[attr-defined]
                     idx_content = current.idx.s.decode() if isinstance(current.idx.s, bytes) else current.idx.s
                     idx_content = idx_content.replace('\\', '\\\\').replace('"', '\\"')
                     parts.append(f'"{idx_content}"')
                 else:
-                    parts.append(self.generate(current.idx))
+                    parts.append(self.generate(current.idx))  # type: ignore[arg-type]
             else:
-                parts.append(self.generate(current.idx))
+                parts.append(self.generate(current.idx))  # type: ignore[arg-type]
 
             if hasattr(current, 'value') and isinstance(current.value, astnodes.Index):
                 current = current.value

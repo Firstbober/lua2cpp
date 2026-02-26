@@ -854,3 +854,8 @@ namespace table_lib {
 // ============================================================
 // END l2c_runtime_lua_table.hpp
 // ============================================================
+
+// Additional to_tvalue overload for TableSlotProxy (must be after lua_table.hpp include)
+namespace detail {
+    inline TValue to_tvalue(const TableSlotProxy& p) { return static_cast<TValue>(p); }
+}

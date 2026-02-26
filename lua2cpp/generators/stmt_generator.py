@@ -493,6 +493,37 @@ auto {var2} = _mr_{var1}[2];"""
             self._table_method_registrations.append(registration)
         return f"{template_str}{return_type} {mangled_name}({params_str}) {body}"
 
+    def _generate_variadic_overload(self, func_name: str, template_params: list[str], 
+                                      params: list[str], return_type: str) -> str:
+        """Generate a variadic overload that accepts extra arguments and forwards to the original function.
+        
+        Args:
+            func_name: The function name
+            template_params: List of template parameter declarations like "typename q_t"
+            params: List of parameter declarations like "q_t q"
+            return_type: The return type ("TABLE", "void", "auto", etc.)
+            
+        Returns:
+            str: C++ variadic overload function definition
+        """
+        # Add Unused... to template params
+        all_template_params = template_params + ["typename... Unused"]
+        # Add Unused&&... to params
+        all_params = params + ["Unused&&... unused"]
+        # Extract param names for forwarding (get the last word from each param)
+        forward_args = [p.split()[-1] for p in params]
+        
+        template_str = f"template<{', '.join(all_template_params)}>"
+        params_str = ", ".join(all_params)
+        forward_str = ", ".join(forward_args)
+        
+        if return_type == "void":
+            body = f"{{ {func_name}({forward_str}); }}"
+        else:
+            body = f"{{ return {func_name}({forward_str}); }}"
+        
+        return f"{template_str}\n{return_type} {func_name}({params_str}) {body}"
+
     def visit_LocalFunction(self, node: astnodes.LocalFunction) -> str:
         """Generate C++ function definition for local function
 
@@ -510,6 +541,9 @@ auto {var2} = _mr_{var1}[2];"""
         # Get function name
         func_name = node.name.id
         mangled_name = "_l2c_main" if func_name == "main" else func_name
+
+        if self._expr_gen:
+            self._expr_gen.record_template_function(mangled_name)
 
         # Get return type from type annotation
         return_type = "auto"
@@ -595,10 +629,26 @@ auto {var2} = _mr_{var1}[2];"""
         self.exit_function()
         self._expr_gen.exit_function()
 
+        # Generate main function
         if template_params:
-            return f"template<{template_params_str}>\n{inferred_return_type} {mangled_name}({params_str}) {body}"
+            main_func = f"template<{template_params_str}>\n{inferred_return_type} {mangled_name}({params_str}) {body}"
         else:
-            return f"{inferred_return_type} {mangled_name}() {body}"
+            main_func = f"{inferred_return_type} {mangled_name}() {body}"
+
+        # Generate variadic overload for ALL template functions
+        # This is needed because template functions can be wrapped in lambdas
+        # (for template deduction) and then called with any number of args
+        if template_params:
+            template_param_decls = [f"typename {p}" for p in template_params]
+            overload = self._generate_variadic_overload(
+                func_name=mangled_name,
+                template_params=template_param_decls,
+                params=params,
+                return_type=inferred_return_type
+            )
+            return f"{main_func}\n\n{overload}"
+
+        return main_func
 
     def visit_Call(self, node: astnodes.Call) -> str:
         """Generate C++ function call statement
