@@ -142,6 +142,19 @@ class StmtGenerator(ASTVisitor):
         Returns:
             str: C++ local variable declaration(s)
         """
+        # Multi-return unpacking: local a, b, c, d = func()
+        # MUST check this FIRST before the for loop
+        if len(node.targets) >= 2 and len(node.values) == 1:
+            # Check if value is a function call (can return multiple values)
+            if isinstance(node.values[0], (astnodes.Call, astnodes.Invoke)):
+                vars_list = [t.id for t in node.targets]
+                expr_code = self._expr_gen.generate(node.values[0])
+                lines = [f"auto _mr_{vars_list[0]} = {expr_code};"]
+                lines.append(f"auto {vars_list[0]} = _mr_{vars_list[0]};")
+                for i, var in enumerate(vars_list[1:], start=2):
+                    lines.append(f"auto {var} = _mr_{vars_list[0]}[{i}];")
+                return "\n".join(lines)
+
         # LocalAssign has .targets (list of Name nodes) and .values (list of expressions)
         # Multiple variables can be declared: local x, y = 1, 2
         lines = []
@@ -221,15 +234,6 @@ class StmtGenerator(ASTVisitor):
             else:
                 lines.append(f"TABLE {var_name};")
 
-        # Multi-return unpacking: local a, b = func()
-        if len(node.targets) == 2 and len(node.values) == 1:
-            var1 = node.targets[0].id
-            var2 = node.targets[1].id
-            expr_code = self._expr_gen.generate(node.values[0])
-            return f"""auto _mr_{var1} = {expr_code};
-auto {var1} = _mr_{var1};
-auto {var2} = _mr_{var1}[2];"""
-
         # If only one variable, return single line; otherwise return all lines
         if len(lines) == 1:
             return lines[0]
@@ -252,20 +256,35 @@ auto {var2} = _mr_{var1}[2];"""
 
         # For multi-assignment (swap patterns), save all RHS to temps first
         if len(node.targets) > 1:
-            temps = []
-            for i, value in enumerate(node.values):
-                value_code = self._expr_gen.generate(value)
-                tmp_name = f"_l2c_tmp_{i}"
-                temps.append(tmp_name)
+            # Multi-return unpacking: a, b, c, d = func()
+            # Check if single value is a function call
+            if len(node.values) == 1 and isinstance(node.values[0], (astnodes.Call, astnodes.Invoke)):
+                value_code = self._expr_gen.generate(node.values[0])
+                tmp_name = "_l2c_tmp_0"
                 lines.append(f"auto {tmp_name} = {value_code};")
+                # Assign with indexing: [1], [2], [3], ...
+                for i, target_node in enumerate(node.targets):
+                    target_code = self._expr_gen.generate(target_node)
+                    if i == 0:
+                        lines.append(f"{target_code} = {tmp_name}[1];")
+                    else:
+                        lines.append(f"{target_code} = {tmp_name}[{i+1}];")
+            else:
+                # Original swap pattern logic
+                temps = []
+                for i, value in enumerate(node.values):
+                    value_code = self._expr_gen.generate(value)
+                    tmp_name = f"_l2c_tmp_{i}"
+                    temps.append(tmp_name)
+                    lines.append(f"auto {tmp_name} = {value_code};")
 
-            # Now assign temps to targets
-            for i, target_node in enumerate(node.targets):
-                target_code = self._expr_gen.generate(target_node)
-                if i < len(temps):
-                    lines.append(f"{target_code} = {temps[i]};")
-                else:
-                    lines.append(f"{target_code} = TABLE();")
+                # Now assign temps to targets
+                for i, target_node in enumerate(node.targets):
+                    target_code = self._expr_gen.generate(target_node)
+                    if i < len(temps):
+                        lines.append(f"{target_code} = {temps[i]};")
+                    else:
+                        lines.append(f"{target_code} = TABLE();")
         else:
             # Single assignment - original behavior
             for i, target_node in enumerate(node.targets):
@@ -315,9 +334,13 @@ auto {var2} = _mr_{var1}[2];"""
             second_code = self._expr_gen.generate(node.values[1])
             return f"return multi_return({first_code}, {second_code});"
         else:
-            # More than 2 - just take first
-            expr_code = self._expr_gen.generate(node.values[0])
-            return f"return {expr_code};"
+            # 3+ values: use nested multi_return
+            # return a,b,c,d → multi_return(a, multi_return(b, multi_return(c, d)))
+            codes = [self._expr_gen.generate(v) for v in node.values]
+            result = codes[-1]
+            for code in reversed(codes[:-1]):
+                result = f"multi_return({code}, {result})"
+            return f"return {result};"
 
     def _normalize_block_body(self, block):
         """Normalize Block.body to a list for iteration.
@@ -480,7 +503,7 @@ auto {var2} = _mr_{var1}[2];"""
             body = block.body if isinstance(block.body, list) else [block.body]
             for stmt in body:
                 from luaparser import astnodes
-                if isinstance(stmt, astnodes.Return) and hasattr(stmt, 'values') and len(stmt.values) == 2:
+                if isinstance(stmt, astnodes.Return) and hasattr(stmt, 'values') and len(stmt.values) >= 2:
                     return True
                 if hasattr(stmt, 'body') and stmt.body and has_multi_return(stmt.body):
                     return True
@@ -519,6 +542,15 @@ auto {var2} = _mr_{var1}[2];"""
         inferred_return_type = self._infer_return_type(node.body)
         self._current_function_return_type = inferred_return_type
         body = self._generate_block(node.body, indent="    ")
+        # Add implicit return NIL for non-void functions that don't end with return
+        if inferred_return_type not in ("void", "", "auto"):
+            body_statements = self._normalize_block_body(node.body)
+            last_stmt = body_statements[-1] if body_statements else None
+            if not isinstance(last_stmt, astnodes.Return):
+                body = body.rstrip()
+                if body.endswith("}"):
+                    body = body[:-1]
+                body = body + "\n    return NIL;\n}"
         self._current_function_return_type = ""
         self.exit_function()
         
@@ -706,7 +738,7 @@ auto {var2} = _mr_{var1}[2];"""
             body = block.body if isinstance(block.body, list) else [block.body]
             for stmt in body:
                 from luaparser import astnodes
-                if isinstance(stmt, astnodes.Return) and hasattr(stmt, 'values') and len(stmt.values) == 2:
+                if isinstance(stmt, astnodes.Return) and hasattr(stmt, 'values') and len(stmt.values) >= 2:
                     return True
                 if hasattr(stmt, 'body') and stmt.body and has_multi_return(stmt.body):
                     return True
@@ -726,6 +758,15 @@ auto {var2} = _mr_{var1}[2];"""
         # Track the current function's return type for bare return handling
         self._current_function_return_type = inferred_return_type
         body = self._generate_block(node.body, indent="    ")
+        # Add implicit return NIL for non-void functions that don't end with return
+        if inferred_return_type not in ("void", "", "auto"):
+            body_statements = self._normalize_block_body(node.body)
+            last_stmt = body_statements[-1] if body_statements else None
+            if not isinstance(last_stmt, astnodes.Return):
+                body = body.rstrip()
+                if body.endswith("}"):
+                    body = body[:-1]
+                body = body + "\n    return NIL;\n}"
         self._current_function_return_type = ""
         self.exit_function()
         self._expr_gen.exit_function()
