@@ -160,6 +160,13 @@ class ExprGenerator(ASTVisitor):
             str: Variable name as-is
         """
         name = node.id
+        # Check if this is a library alias FIRST (before function_locals)
+        # Library aliases are emitted at file scope in l2c_aliases namespace
+        if hasattr(self._stmt_gen, '_library_aliases'):
+            if name in self._stmt_gen._library_aliases:
+                return f"l2c_aliases::{name}"
+        
+        # Check function-local variables (they shadow module state)
         # Check function-local variables first (they shadow module state)
         if name in self._function_locals:
             return name
@@ -287,6 +294,12 @@ class ExprGenerator(ASTVisitor):
         # Regular or: (cond) ? (cond) : (fallback)
         left = self.generate(node.left)
         right = self.generate(node.right)
+        
+        # If right is a string literal, convert both to TValue for type safety
+        # This handles patterns like: a or ""
+        if isinstance(node.right, astnodes.String):
+            return f"(l2c::is_truthy({left}) ? detail::to_tvalue({left}) : TValue({right}))"
+        
         if isinstance(node.right, astnodes.Number):
             right = f"TABLE({right})"
         return f"(({left}) ? ({left}) : ({right}))"
@@ -337,7 +350,7 @@ class ExprGenerator(ASTVisitor):
                 mangled_arg = "_l2c_main" if arg_name == "main" else arg_name
                 if self.is_template_function(arg_name):  # Check original name for registration
                     # Wrap template function in lambda for template deduction
-                    generated = f"[&](auto&&... args) {{ return {mangled_arg}(args...); }}"
+                    generated = f"[&](auto&&... args) {{ if constexpr (std::is_void_v<decltype({mangled_arg}(args...))>) {{ {mangled_arg}(args...); return multi_return(NIL, NIL); }} else {{ return multi_return({mangled_arg}(args...), NIL); }} }}"
                 else:
                     generated = self.generate(arg)
             else:

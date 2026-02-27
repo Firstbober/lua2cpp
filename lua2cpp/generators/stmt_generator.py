@@ -4,10 +4,24 @@ Generates C++ code from Lua AST statement nodes.
 Implements double-dispatch pattern for local assignments and return statements.
 """
 
-from typing import Any, Optional, List, TYPE_CHECKING, Set
+from typing import Any, Optional, List, TYPE_CHECKING, Set, Dict
+from dataclasses import dataclass
 from ..core.ast_visitor import ASTVisitor
 from ..core.types import Type, ASTAnnotationStore
 from .expr_generator import ExprGenerator
+
+
+@dataclass
+class AliasInfo:
+    """Information about a library function alias.
+    
+    Tracks aliases like `local write = io.write` so they can be emitted
+    at file scope in a namespace, making them available to all functions.
+    """
+    lua_name: str          # The alias name in Lua (e.g., "write")
+    cpp_lib: str           # C++ library namespace (e.g., "io", "math_lib")
+    cpp_method: str        # C++ method name (e.g., "write")
+    cpp_qualified: str     # Fully qualified C++ name (e.g., "io::write")
 
 try:
     from luaparser import astnodes
@@ -48,6 +62,8 @@ class StmtGenerator(ASTVisitor):
         self._forin_counter = 0
         # Track current function's return type for bare return handling
         self._current_function_return_type: str = ""
+        # Track library function aliases (e.g., local write = io.write)
+        self._library_aliases: Dict[str, AliasInfo] = {}
 
     def set_module_context(self, prefix: str, module_state: Set) -> None:
         """Propagate module context to internal ExprGenerator"""
@@ -61,6 +77,43 @@ class StmtGenerator(ASTVisitor):
 
     def get_table_method_registrations(self) -> List[str]:
         return self._table_method_registrations
+    def _is_library_alias_pattern(self, target, value):
+        """Check if this is `local name = lib.method` pattern"""
+        if not hasattr(target, 'id'):
+            return False
+        if not isinstance(value, astnodes.Index):
+            return False
+        if not isinstance(value.value, astnodes.Name):
+            return False
+        if not isinstance(value.idx, astnodes.Name):
+            return False
+        lib_name = value.value.id
+        return lib_name in {'io', 'math', 'string', 'table', 'os'}
+
+    def _extract_alias_info(self, target, value):
+        """Extract alias info from `local name = lib.method` pattern"""
+        lib_map = {
+            'io': 'io',
+            'math': 'math_lib',
+            'string': 'string_lib',
+            'table': 'table_lib',
+            'os': 'os_lib',
+        }
+        lib_name = value.value.id
+        if lib_name not in lib_map:
+            return None
+        return AliasInfo(
+            lua_name=target.id,
+            cpp_lib=lib_map[lib_name],
+            cpp_method=value.idx.id,
+            cpp_qualified=f"{lib_map[lib_name]}::{value.idx.id}"
+        )
+
+    def get_library_aliases(self):
+        """Return the dictionary of tracked library aliases."""
+        return self._library_aliases
+
+
     def generate(self, node: Any) -> str:
         """Generate C++ code from a statement node using double-dispatch
 
@@ -98,6 +151,15 @@ class StmtGenerator(ASTVisitor):
             init_expr = None
             if i < len(node.values):
                 init_expr = node.values[i]
+            # Check for library alias pattern at module level: local name = lib.method
+            # This creates an alias that must be emitted at file scope for all functions to use
+            if init_expr is not None and not self._in_function:
+                if self._is_library_alias_pattern(name_node, init_expr):
+                    alias_info = self._extract_alias_info(name_node, init_expr)
+                    if alias_info:
+                        self._library_aliases[alias_info.lua_name] = alias_info
+                        # Skip this target - alias will be emitted in namespace at file scope
+                        continue
 
             # Try to get type information from the name node
             var_type = None

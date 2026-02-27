@@ -175,7 +175,12 @@ class CppEmitter:
         self._module_prefix = sanitized_filename
 
         # Propagate module context to StmtGenerator for name mangling
+
         self._stmt_gen.set_module_context(self._module_prefix, self._module_state)
+        # Collect library aliases (pre-pass before emitting namespace)
+        self._collect_library_aliases(chunk)
+
+
 
         if self._module_state:
             lines.append("// Module state")
@@ -188,6 +193,21 @@ class CppEmitter:
                 else:
                     lines.append(f"{cpp_type} {self._module_prefix}_{var_name};")
             lines.append("")
+
+        # Emit library alias namespace (BEFORE forward declarations so functions can use them)
+        aliases = self._stmt_gen.get_library_aliases()
+        if aliases:
+            lines.append("// Library function aliases")
+            lines.append("namespace l2c_aliases {")
+            for alias_info in aliases.values():
+                lines.append(
+                    f"    static auto {alias_info.lua_name} = "
+                    f"[](auto&&... args) {{ return {alias_info.cpp_qualified}(args...); }};"
+                )
+            lines.append("} // namespace l2c_aliases")
+            lines.append("")
+
+        # Phase 2: Generate forward declarations
 
         # Phase 2: Generate forward declarations
         forward_decls = self._generate_forward_declarations(chunk)
@@ -936,6 +956,52 @@ class CppEmitter:
         # Store in instance variable for use by code generation
         self._module_state = module_state
         return module_state
+
+
+    def _collect_library_aliases(self, chunk: astnodes.Chunk) -> None:
+        """Pre-pass to collect library function aliases like `local write = io.write`
+        
+        This must be called before emitting the alias namespace so aliases
+        are available at file scope for all functions to use.
+        """
+        lib_map = {
+            'io': 'io',
+            'math': 'math_lib',
+            'string': 'string_lib',
+            'table': 'table_lib',
+            'os': 'os_lib',
+        }
+        
+        for stmt in (chunk.body.body if isinstance(chunk.body.body, list) else [chunk.body.body]):
+            if type(stmt).__name__ == "LocalAssign" and hasattr(stmt, 'targets'):
+                for i, target in enumerate(stmt.targets):
+                    if not hasattr(target, 'id'):
+                        continue
+                    if not hasattr(stmt, 'values') or i >= len(stmt.values):
+                        continue
+                    
+                    value = stmt.values[i]
+                    # Check if this is `local name = lib.method` pattern
+                    if not isinstance(value, astnodes.Index):
+                        continue
+                    if not isinstance(value.value, astnodes.Name):
+                        continue
+                    if not isinstance(value.idx, astnodes.Name):
+                        continue
+                    
+                    lib_name = value.value.id
+                    if lib_name not in lib_map:
+                        continue
+                    
+                    # Import the AliasInfo from stmt_generator
+                    from .stmt_generator import AliasInfo
+                    alias_info = AliasInfo(
+                        lua_name=target.id,
+                        cpp_lib=lib_map[lib_name],
+                        cpp_method=value.idx.id,
+                        cpp_qualified=f"{lib_map[lib_name]}::{value.idx.id}"
+                    )
+                    self._stmt_gen._library_aliases[alias_info.lua_name] = alias_info
 
     def _collect_implicit_globals_in_function(self, func_node, local_declared: Set[str]) -> Set[str]:
         """Scan function body for implicit globals (Assign without local declaration)"""
