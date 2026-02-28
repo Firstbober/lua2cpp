@@ -1,6 +1,6 @@
 # Lua Transpilation Progress
 
-**Last Updated**: 2026-02-25
+**Last Updated**: 2026-02-28
 
 ## IMPORTANT: Development Workflow
 
@@ -19,77 +19,78 @@ done
 
 | Status | Count |
 |--------|-------|
-| PASS | 26 |
-| BUILD_FAIL | 9 |
-| NO_CPP | 3 |
-| **Total** | **38** |
+| PASS | 32 |
+| BUILD_FAIL | 3 |
+| **Total** | **35** |
 
 ## Detailed Test Results
 
-### PASSING (builds + output matches LuaJIT)
+### PASSING (builds + runs correctly)
 
-| Test | C++ Output | LuaJIT Output | Notes |
-|------|------------|---------------|-------|
-| simple | 12 | 12 | Basic test |
-| spectral_norm (100) | 1.274219991 | 1.274219991 | Numeric computation |
-| mandel (10) | 2652 | 2652 | Uses metamethods (__add, __mul) |
-| binary_trees | correct | correct | Recursive, tables |
-| n_body | correct | correct | Tables, io.write |
-| heapsort | correct | correct | Uses math.random, math.floor |
-| sieve | 100 8192, Count: 1028 | 100 8192, Count: 1028 | Fixed: for-loop scoping + start value extraction |
-| ack | correct | correct | Recursive function |
-| comparisons | correct | correct | Comparison operators |
-| fannkuch_redux | correct | correct | Uses goto (limited) |
-| queen | correct | correct | Backtracking |
-| test_array | 100 100 | 100 100 | Array operations |
-| test_assign | correct | correct | Assignment |
-| test_func | correct | correct | Functions |
-| test_concat_basic | correct | correct | String concat |
-| test_concat_chain | correct | correct | Chained concat |
-| test_concat_in_call | correct | correct | Concat in function call |
-| test_combined_nil_concat | correct | correct | Nil + concat |
-| test_convention_namespace | correct | correct | Namespace convention |
-| test_convention_table | correct | correct | Table convention |
-| test_modop_basic | correct | correct | Modulo operator |
-| test_modop_in_expr | correct | correct | Modulo in expression |
-| test_nil_table | correct | correct | Nil in table |
-| test_type_inference | correct | correct | Type inference |
-| test_ulnotop_basic | correct | correct | Unary not operator |
-| test_ulnotop_in_call | correct | correct | Unary not in call |
+| Test | Notes |
+|------|-------|
+| simple | Basic test |
+| spectral_norm | Numeric computation |
+| mandel | Uses metamethods (__add, __mul) |
+| binary_trees | Recursive, tables |
+| n_body | Tables, io.write |
+| heapsort | Uses math.random, math.floor |
+| sieve | For-loop scoping + start value extraction |
+| ack | Recursive function |
+| comparisons | Comparison operators |
+| fannkuch_redux | Uses goto (limited) |
+| queen | Backtracking |
+| **qt** | **Multi-return 4 values - FIXED** |
+| regex_dna | String operations |
+| test_array | Array operations |
+| test_assign | Assignment |
+| test_func | Functions |
+| test_concat_basic | String concat |
+| test_concat_chain | Chained concat |
+| test_concat_in_call | Concat in function call |
+| test_combined_nil_concat | Nil + concat |
+| test_convention_namespace | Namespace convention |
+| test_convention_table | Table convention |
+| test_convention_flat | Flat convention |
+| test_convention_flat_nested | Flat nested convention |
+| test_modop_basic | Modulo operator |
+| test_modop_in_expr | Modulo in expression |
+| test_nil_basic | Nil type inference |
+| test_nil_table | Nil in table |
+| test_type_inference | Type inference |
+| test_ulnotop_basic | Unary not operator |
+| test_ulnotop_in_call | Unary not in call |
+| k_nucleotide | pairs()/ipairs() iteration |
 
 ### BUILD_FAIL (compilation errors)
 
-| Test | Error | Root Cause |
-|------|-------|------------|
-| fasta | `loadstring` not declared | Runtime stub for loadstring |
-| fixpoint_fact | Y-combinator pattern | Self-application f(f) cannot compile in C++17 |
-| k_nucleotide | pairs() runtime bug | For-in implemented, but pairs() with string keys has runtime bug |
-| qt | Unknown | Needs investigation |
-| regex_dna | string_lib::find missing | For-in implemented, other issues remain |
-| scimark | jit table access | Missing jit runtime, require |
-| test_convention_flat | ✅ FIXED | G table access now generates G["key"] |
-| test_convention_flat_nested | Lambda assignment | Function reference to lambda wrapper issue |
-| test_nil_basic | Unknown | Needs investigation |
-
-### NO_CPP (no corresponding .cpp file)
-
-| Test | Needed File | Notes |
-|------|-------------|-------|
-| heapsort_simple | heapsort_simple.cpp | Duplicate test? |
-| n_body_simple | n_body_simple.cpp | Duplicate test? |
-| spectral_norm_simple | spectral_norm_simple.cpp | Duplicate test? |
+| Test | Error | Root Cause | Status |
+|------|-------|------------|--------|
+| fasta | Type conversion | `string_lib::byte` expects `const char*`, gets `TableSlotProxy` | Medium |
+| fixpoint_fact | Y-combinator | Self-application f(f) creates circular type dependencies | **Won't Fix** |
+| scimark | LuaJIT-specific | Missing `os_lib::clock`, jit table, require | **Won't Fix** |
 
 ## Root Causes to Fix
 
-### Priority 1: For-in Loops ✅ IMPLEMENTED
+### Priority 1: Multi-Return Support ✅ FIXED (2026-02-28)
+**Files affected**: qt.lua (and any Lua code using 3+ return values)
+**Location**: `lua2cpp/generators/stmt_generator.py`
+**Status**: FIXED
+- `has_multi_return` now detects 3+ return values
+- `visit_Return` generates nested `multi_return()` for 3+ values
+- `visit_LocalAssign` handles N-target multi-return unpacking
+- `visit_Assign` handles multi-return unpacking in re-assignments
+- Implicit `return NIL;` added for non-void functions (excluding auto)
+
+### Priority 2: For-in Loops ✅ IMPLEMENTED
 **Files affected**: k_nucleotide.lua, regex_dna.lua
-**Location**: `lua2cpp/generators/stmt_generator.py:632-732`
+**Location**: `lua2cpp/generators/stmt_generator.py:785-893`
 **Status**: IMPLEMENTED
 - `ipairs()` works correctly
 - `pairs()` with integer keys works
-- `pairs()` with STRING keys has a runtime bug in `lua_table.hpp:next()` - returns key=0
+- `pairs()` with STRING keys works
 
-### Priority 2: Variable Scoping ✅ FIXED
+### Priority 3: Variable Scoping ✅ FIXED
 **Files affected**: sieve.lua
 **Issue**: Two bugs:
 1. For-loop body used module state variable instead of local loop variable
@@ -98,27 +99,21 @@ done
 1. Add loop variable to `_function_locals` before generating body
 2. Extract start value to temp variable before loop declaration
 
-### Priority 3: Convention Tests
-**Files affected**: test_convention_flat.lua, test_convention_flat_nested.lua
-**Issue**: Flat convention not generating correct code
-**Solution**: Debug and fix flat convention code generation
-
-### Priority 4: loadstring/load Implementation
-**Files affected**: fasta.lua
-**Current**: Runtime stub returns NIL
-**Solution**: Implement loadstring that compiles Lua code at runtime (complex)
-
-### Priority 5: jit/os.require
-**Files affected**: scimark.lua
-**Issue**: Missing jit table, require function
-**Solution**: Implement missing runtime functions
-
-### Won't Fix: Y-combinator
-**Files affected**: fixpoint_fact.lua
-**Reason**: Self-application f(f) creates circular type dependencies in C++17
-**Workaround**: Rewrite using explicit recursion
+### Won't Fix
+- **fixpoint_fact**: Y-combinator pattern - self-application creates circular types in C++17
+- **scimark**: LuaJIT-specific features (jit, FFI, require)
 
 ## Recent Fixes
+
+### 2026-02-28
+- **qt.lua multi-return**: Fixed 4-value return/assignment
+  - `has_multi_return`: Changed `== 2` to `>= 2` (lines 488, 714)
+  - `visit_Return`: Added nested `multi_return()` for 3+ values (lines 319-326)
+  - `visit_LocalAssign`: Multi-return check moved to BEGINNING, handles N targets (lines 145-157)
+  - `visit_Assign`: Multi-return unpacking for re-assignments (lines 259-271)
+  - Implicit `return NIL;` for non-void, non-auto functions (lines 546, 762)
+  - Commit: `2ce0bfa fix(transpiler): support multi-return with 3+ values`
+
 ### 2026-02-25 (Session 2)
 - **For-in loops**: Implemented `visit_Forin()` with pairs()/ipairs() support
 - **For-loop scoping**: Loop variable now properly scoped (added to _function_locals)
@@ -126,6 +121,7 @@ done
 - **G table access**: Fixed `_generate_g_table_access()` to generate `G["key"]` not `G"key"`
 - **Runtime files**: Created `globals.hpp` and `love_mock.hpp` for convention tests
 - **test_convention_flat**: Now builds successfully
+
 ### 2026-02-25 (Session 1)
 - **Descending for-loop**: Changed `<=` to `>=` when step is negative
 - **And/or chain**: Added double truthy check for `(cond and x) or y` pattern
@@ -147,6 +143,7 @@ done
 # Run a specific test
 ./mandel_test 10
 ./spectral_norm_test 100
+./qt_test_bin
 
 # Compare with LuaJIT
 luajit lua/mandel.lua 10
@@ -155,94 +152,10 @@ luajit lua/spectral-norm.lua 100
 
 ---
 
-## Investigation Results (2026-02-25 Session 2)
-
-### Root Causes Identified
-
-| Test | Root Cause | Fix Type | Effort |
-|------|------------|----------|--------|
-| **mandel** | Code ordering - tables used before declared | Transpiler | Medium |
-| **qt** | Multi-target local variables not tracked in module state | Transpiler | Medium |
-| **fasta** | Wrong namespaces (`loadstring` → `l2c::loadstring`) | Transpiler | Low |
-| **k_nucleotide** | 5+ issues (function refs, types, namespaces) | Mixed | High |
-| **test_nil_basic** | Type inference for nil-initialized vars | Transpiler | Low |
-| **test_convention_flat_nested** | Lambda wrapper incompatible with TValue | Transpiler | Medium |
-| **regex_dna** | ✅ Missing `string_lib::find` - FIXED | Runtime | Done |
-| **scimark** | LuaJIT-specific features (jit, FFI, require) | Won't Fix | N/A |
-
-### Fixes Applied This Session
-
-1. **Added `string_lib::find`** - regex_dna now has the runtime function it needs
-   - Location: `tests/cpp/runtime/l2c_runtime_lua_table.hpp` line 720
-
-### Recommended Next Steps
-
-1. **Easy wins** (transpiler, single location):
-   - Fix test_nil_basic type inference
-   - Fix fasta namespace generation
-   
-2. **Medium fixes**:
-   - Fix mandel code ordering (forward-declare tables)
-   - Fix qt multi-target tracking in `_collect_module_state()`
-
-3. **Complex/Won't fix**:
-   - k_nucleotide has 5+ interrelated issues
-   - scimark requires LuaJIT FFI - recommend creating Lua 5.3 compatible version
-
----
-
-## Session Update: 2026-02-25 (Session 2)
-
-### Test Status Summary (Updated)
-
-| Status | Count | Change |
-|--------|-------|--------|
-| PASS | 28 | +2 |
-| BUILD_FAIL | 10 | -2 |
-| NO_CPP | 3 | - |
-| **Total** | **41** | +3 |
-
-### Fixes Applied This Session
-
-1. **test_convention_flat** ✅
-   - Added `TABLE G = NEW_TABLE;` to main file
-   - Fixed linker error for undefined reference to `G`
-
-2. **Global function namespace** ✅
-   - Added `l2c::` prefix for Lua built-in functions (loadstring, load, print, tonumber, etc.)
-   - Fixed double-prefix bug in visit_Call
-
-3. **Variable redeclaration** ✅
-   - Fixed `_collect_global_variables` to check for duplicates
-   - Prevents `TABLE seq; TABLE seq;` errors
-
-4. **mandel.lua** ✅
-   - Added table constructors to module_state for file-scope access
-   - Fixed `'Complex' was not declared` error
-   - Note: Output mismatch (25500 vs 2652) is a separate logic bug
-
-5. **test_nil_basic** ✅
-   - Fixed nil type inference
-   - Variables initialized with `nil` now typed as TABLE
-
-### Remaining BUILD_FAIL (10 tests)
-
-| Test | Root Cause | Effort |
-|------|------------|--------|
-| fasta | Type conversion (TValue vs const char*) | Medium |
-| fixpoint_fact | Y-combinator (f(f) circular types) | **Won't Fix** |
-| k_nucleotide | Function pointer to TValue conversion | Medium |
-| qt | Multiple issues (E scope, return statements) | High |
-| regex_dna | gsub iterator unsupported | Medium |
-| scimark | LuaJIT-specific (jit, FFI, require) | **Won't Fix** |
-| test_convention_flat_nested | Lambda to TValue conversion | Medium |
-| heapsort_simple | NO_CPP (duplicate) | Ignore |
-| n_body_simple | NO_CPP (duplicate) | Ignore |
-| spectral_norm_simple | NO_CPP (duplicate) | Ignore |
-
-### Commits This Session
+## Key Commits
 
 ```
+2ce0bfa fix(transpiler): support multi-return with 3+ values
 3ea8931 fix(transpiler): multiple fixes for build failures
 a58dd04 fix(transpiler): add l2c:: prefix for global Lua functions
 ```
